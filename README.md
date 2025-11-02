@@ -1,5 +1,5 @@
 # Real-time monitoring and metrics for your Tokio channels
-[![Latest Version](https://img.shields.io/crates/v/tokio-channels-console.svg)](https://crates.io/crates/tokio-channels-console) [![GH Actions](https://github.com/pawurb/tokio-channels-console/actions/workflows/ci.yml/badge.svg)](https://github.com/pawurb/tokio-channels-console/actions)
+[![Latest Version](https://img.shields.io/crates/v/channels-console.svg)](https://crates.io/crates/channels-console) [![GH Actions](https://github.com/pawurb/channels-console/actions/workflows/ci.yml/badge.svg)](https://github.com/pawurb/channels-console/actions)
 
 ![Console TUI Example](console-tui2.gif)
 
@@ -20,24 +20,24 @@ This crate provides an easy-to-configure way to monitor Tokio channels. Track pe
 `Cargo.toml`
 
 ```toml
-tokio-channels-console = { version = "0.1", optional = true }
+channels-console = { version = "0.1", optional = true }
 
 [features]
-tokio-channels-console = ["tokio-channels-console/tokio-channels-console"]
+channels-console = ["channels-console/channels-console"]
 ```
 
-This config ensures that the lib has **zero** overhead unless explicitly enabled via a `tokio-channels-console` feature.
+This config ensures that the lib has **zero** overhead unless explicitly enabled via a `channels-console` feature.
 
 Next use `instrument!` macro to monitor selected Tokio channels:
 
 ```rust
 let (tx1, rx1) = mpsc::channel::<i32>(10);
-#[cfg(feature = "tokio-channels-console")]
-let (tx1, rx1) = tokio_channels_console::instrument!((tx1, rx1));
+#[cfg(feature = "channels-console")]
+let (tx1, rx1) = channels_console::instrument!((tx1, rx1));
 
 let (tx2, rx2) = mpsc::unbounded_channel::<UserData>();
-#[cfg(feature = "tokio-channels-console")]
-let (tx2, rx2) = tokio_channels_console::instrument!((tx2, rx2));
+#[cfg(feature = "channels-console")]
+let (tx2, rx2) = channels_console::instrument!((tx2, rx2));
 ```
 
 This is the only change you have to do in your codebase. `instrument!` macro returns exactly the same channel types so it remains 100% compatible.
@@ -47,22 +47,22 @@ Currently the library supports:
 - `sync::mpsc::unbounded_channel` 
 - `sync::oneshot` 
 
-Now, install `tokio-channels-console` TUI:
+Now, install `channels-console` TUI:
 
 ```bash
-cargo install tokio-channels-console --features=tui
+cargo install channels-console --features=tui
 ```
 
-Execute your program with `--features=tokio-channels-console`:
+Execute your program with `--features=channels-console`:
 
 ```bash
-cargo run --features=tokio-channels-console
+cargo run --features=channels-console
 ```
 
-In a different terminal run `tokio-channels-console` CLI to start the TUI and see live usage metrics:
+In a different terminal run `channels-console` CLI to start the TUI and see live usage metrics:
 
 ```bash
-tokio-channels-console
+channels-console
 ```
 
 ![Console Dashboard](console-dashboard2.png)
@@ -72,26 +72,26 @@ tokio-channels-console
 1. Install CLI:
 
 ```bash
-cargo install tokio-channels-console --features=tui
+cargo install channels-console --features=tui
 ```
 
 2. Clone this repo:
 
 ```bash
-git clone git@github.com:pawurb/tokio-channels-console.git
+git clone git@github.com:pawurb/channels-console.git
 ```
 
 3. Run `console_feed` example:
 
 ```bash
-cd tokio-channels-console
-cargo run --example console_feed --features=tokio-channels-console
+cd channels-console
+cargo run --example console_feed --features=channels-console
 ```
 
 4. Run TUI (in a different terminal):
 
 ```bash
-tokio-channels-console
+channels-console
 ```
 
 ## How it works?
@@ -126,15 +126,15 @@ async fn main() {
     let (tx, rx) = mpsc::channel::<String>(100);
 
     // Instrument them only when the feature is enabled
-    #[cfg(feature = "tokio-channels-console")]
-    let (tx, rx) = tokio_channels_console::instrument!((tx, rx));
+    #[cfg(feature = "channels-console")]
+    let (tx, rx) = channels_console::instrument!((tx, rx));
 
     // The channel works exactly the same way
     tx.send("Hello".to_string()).await.unwrap();
 }
 ```
 
-**Zero-Cost Abstraction:** When the `tokio-channels-console` feature is disabled, the `#[cfg]` attribute ensures the instrumentation code is completely removed at compile time - there's absolutely zero runtime overhead.
+**Zero-Cost Abstraction:** When the `channels-console` feature is disabled, the `#[cfg]` attribute ensures the instrumentation code is completely removed at compile time - there's absolutely zero runtime overhead.
 
 **Note:** The first invocation of `instrument!` automatically starts:
 - A background thread for metrics collection
@@ -148,8 +148,8 @@ By default, channels are labeled with their file location and line number (e.g.,
 
 ```rust
 let (tx, rx) = mpsc::channel::<Task>(10);
-#[cfg(feature = "tokio-channels-console")]
-let (tx, rx) = tokio_channels_console::instrument!((tx, rx), label = "task-queue");
+#[cfg(feature = "channels-console")]
+let (tx, rx) = channels_console::instrument!((tx, rx), label = "task-queue");
 ```
 
 ### `ChannelsGuard` - Printing Statistics on Drop
@@ -164,13 +164,13 @@ use tokio::sync::mpsc;
 #[tokio::main]
 async fn main() {
     // Create guard at the start of your program (only when feature is enabled)
-    #[cfg(feature = "tokio-channels-console")]
-    let _guard = tokio_channels_console::ChannelsGuard::new();
+    #[cfg(feature = "channels-console")]
+    let _guard = channels_console::ChannelsGuard::new();
 
     // Your code with instrumented channels...
     let (tx, rx) = mpsc::channel::<i32>(10);
-    #[cfg(feature = "tokio-channels-console")]
-    let (tx, rx) = tokio_channels_console::instrument!((tx, rx));
+    #[cfg(feature = "channels-console")]
+    let (tx, rx) = channels_console::instrument!((tx, rx));
 
     // ... use your channels ...
 
@@ -185,9 +185,9 @@ You can customize the output format using `ChannelsGuardBuilder`:
 ```rust
 #[tokio::main]
 async fn main() {
-    #[cfg(feature = "tokio-channels-console")]
-    let _guard = tokio_channels_console::ChannelsGuardBuilder::new()
-        .format(tokio_channels_console::Format::Json)
+    #[cfg(feature = "channels-console")]
+    let _guard = channels_console::ChannelsGuardBuilder::new()
+        .format(channels_console::Format::Json)
         .build();
 }
 ```
@@ -210,14 +210,14 @@ async fn main() {
 
 ### Metrics Server Port
 
-The HTTP metrics server runs on port `6770` by default. You can customize this using the `TOKIO_CHANNELS_CONSOLE_METRICS_PORT` environment variable:
+The HTTP metrics server runs on port `6770` by default. You can customize this using the `channels_console_METRICS_PORT` environment variable:
 
 ```bash
-TOKIO_CHANNELS_CONSOLE_METRICS_PORT=8080 cargo run --features tokio-channels-console
+channels_console_METRICS_PORT=8080 cargo run --features channels-console
 ```
 
 When using the TUI console, specify the matching port with the `--metrics-port` flag:
 
 ```bash
-tokio-channels-console --metrics-port 8080
+channels-console --metrics-port 8080
 ```

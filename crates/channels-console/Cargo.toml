@@ -1,8 +1,8 @@
 [package]
-name = "tokio-channels-console"
+name = "channels-console"
 version = "0.1.0"
 edition = "2021"
-repository = "https://github.com/pawurb/tokio-channels-console"
+repository = "https://github.com/pawurb/channels-console"
 description = "Like tokio-console, but for channels."
 readme = "../../README.md"
 license = "MIT"
@@ -24,7 +24,7 @@ ureq = { version = "2", features = ["json"], optional = true }
 chrono = { version = "0.4", optional = true }
 
 [features]
-tokio-channels-console = []
+channels-console = []
 tui = ["crossterm", "ratatui", "clap", "colored", "ureq", "chrono"]
 dev = []
 
@@ -32,6 +32,6 @@ dev = []
 ureq = { version = "2", features = ["json"] }
 
 [[bin]]
-name = "tokio-channels-console"
+name = "channels-console"
 path = "bin/main.rs"
 required-features = ["tui"]

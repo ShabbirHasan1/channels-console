@@ -9,11 +9,11 @@ pub mod tests {
             .args([
                 "run",
                 "-p",
-                "tokio-channels-console-test",
+                "channels-console-test",
                 "--example",
                 "basic",
                 "--features",
-                "tokio-channels-console",
+                "channels-console",
             ])
             .output()
             .expect("Failed to execute command");
@@ -49,11 +49,11 @@ pub mod tests {
             .args([
                 "run",
                 "-p",
-                "tokio-channels-console-test",
+                "channels-console-test",
                 "--example",
                 "basic",
                 "--features",
-                "tokio-channels-console",
+                "channels-console",
             ])
             .spawn()
             .expect("Failed to spawn command");
@@ -99,11 +99,11 @@ pub mod tests {
             .args([
                 "run",
                 "-p",
-                "tokio-channels-console-test",
+                "channels-console-test",
                 "--example",
                 "basic_json",
                 "--features",
-                "tokio-channels-console",
+                "channels-console",
             ])
             .output()
             .expect("Failed to execute command");
@@ -135,11 +135,11 @@ pub mod tests {
             .args([
                 "run",
                 "-p",
-                "tokio-channels-console-test",
+                "channels-console-test",
                 "--example",
                 "closed",
                 "--features",
-                "tokio-channels-console",
+                "channels-console",
             ])
             .output()
             .expect("Failed to execute command");
@@ -174,11 +174,11 @@ pub mod tests {
             .args([
                 "run",
                 "-p",
-                "tokio-channels-console-test",
+                "channels-console-test",
                 "--example",
                 "oneshot_closed",
                 "--features",
-                "tokio-channels-console",
+                "channels-console",
             ])
             .output()
             .expect("Failed to execute command");

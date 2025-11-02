@@ -2,13 +2,13 @@ use tokio::sync::oneshot;
 
 #[tokio::main]
 async fn main() {
-    #[cfg(feature = "tokio-channels-console")]
-    let _channels_guard = tokio_channels_console::ChannelsGuard::new();
+    #[cfg(feature = "channels-console")]
+    let _channels_guard = channels_console::ChannelsGuard::new();
 
     let (tx, rx) = oneshot::channel::<String>();
 
-    #[cfg(feature = "tokio-channels-console")]
-    let (tx, rx) = tokio_channels_console::instrument!((tx, rx));
+    #[cfg(feature = "channels-console")]
+    let (tx, rx) = channels_console::instrument!((tx, rx));
 
     drop(rx);
 

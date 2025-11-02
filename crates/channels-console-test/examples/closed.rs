@@ -3,24 +3,23 @@ use tokio::sync::{mpsc, oneshot};
 #[allow(unused_mut)]
 #[tokio::main]
 async fn main() {
-    #[cfg(feature = "tokio-channels-console")]
-    let _channels_guard = tokio_channels_console::ChannelsGuardBuilder::new().build();
+    #[cfg(feature = "channels-console")]
+    let _channels_guard = channels_console::ChannelsGuardBuilder::new().build();
 
     let (txa, mut rxa) = mpsc::unbounded_channel::<i32>();
 
-    #[cfg(feature = "tokio-channels-console")]
-    let (txa, mut rxa) =
-        tokio_channels_console::instrument!((txa, rxa), label = "unbounded-channel");
+    #[cfg(feature = "channels-console")]
+    let (txa, mut rxa) = channels_console::instrument!((txa, rxa), label = "unbounded-channel");
 
     let (txb, mut rxb) = mpsc::channel::<i32>(10);
 
-    #[cfg(feature = "tokio-channels-console")]
-    let (txb, mut rxb) = tokio_channels_console::instrument!((txb, rxb), label = "bounded-channel");
+    #[cfg(feature = "channels-console")]
+    let (txb, mut rxb) = channels_console::instrument!((txb, rxb), label = "bounded-channel");
 
     let (txc, rxc) = oneshot::channel::<String>();
 
-    #[cfg(feature = "tokio-channels-console")]
-    let (txc, rxc) = tokio_channels_console::instrument!((txc, rxc), label = "oneshot-channel");
+    #[cfg(feature = "channels-console")]
+    let (txc, rxc) = channels_console::instrument!((txc, rxc), label = "oneshot-channel");
 
     println!("[Unbounded] Sending 3 messages...");
     for i in 1..=3 {

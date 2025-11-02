@@ -13,7 +13,7 @@ pub enum TCSubcommand {
 #[command(
     version,
     about,
-    long_about = "tokio-channels-console - real-time monitoring and metrics for your Tokio channels"
+    long_about = "channels-console - real-time monitoring and metrics for your Tokio channels"
 )]
 pub struct TCArgs {
     #[command(subcommand)]

@@ -12,7 +12,7 @@ use ratatui::{
 };
 use std::io;
 use std::time::{Duration, Instant, SystemTime};
-use tokio_channels_console::{format_bytes, ChannelState, ChannelType, SerializableChannelStats};
+use channels_console::{format_bytes, ChannelState, ChannelType, SerializableChannelStats};
 
 #[derive(Debug, Parser)]
 pub struct ConsoleArgs {

@@ -7,75 +7,72 @@ async fn main() {
     #[cfg(feature = "tokio-console")]
     console_subscriber::init();
 
-    #[cfg(feature = "tokio-channels-console")]
-    let _channels_guard = tokio_channels_console::ChannelsGuard::new();
+    #[cfg(feature = "channels-console")]
+    let _channels_guard = channels_console::ChannelsGuard::new();
 
     println!("Open the TUI console to watch live updates!");
-    println!("   Run: cargo run -p tokio-channels-console --features tui -- console\n");
+    println!("   Run: cargo run -p channels-console --features tui -- console\n");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Channel 1: Fast data stream - unbounded, rapid messages
     let (tx_fast, mut rx_fast) = mpsc::unbounded_channel::<i32>();
-    #[cfg(feature = "tokio-channels-console")]
+    #[cfg(feature = "channels-console")]
     let (tx_fast, mut rx_fast) =
-        tokio_channels_console::instrument!((tx_fast, rx_fast), label = "fast-data-stream");
+        channels_console::instrument!((tx_fast, rx_fast), label = "fast-data-stream");
 
     // Channel 2: Slow consumer - bounded(5), will back up!
     let (tx_slow, mut rx_slow) = mpsc::channel::<String>(5);
-    #[cfg(feature = "tokio-channels-console")]
+    #[cfg(feature = "channels-console")]
     let (tx_slow, mut rx_slow) =
-        tokio_channels_console::instrument!((tx_slow, rx_slow), label = "slow-consumer");
+        channels_console::instrument!((tx_slow, rx_slow), label = "slow-consumer");
 
     // Channel 3: Burst traffic - bounded(10), bursts every 3 seconds
     let (tx_burst, mut rx_burst) = mpsc::channel::<u64>(10);
-    #[cfg(feature = "tokio-channels-console")]
+    #[cfg(feature = "channels-console")]
     let (tx_burst, mut rx_burst) =
-        tokio_channels_console::instrument!((tx_burst, rx_burst), label = "burst-traffic");
+        channels_console::instrument!((tx_burst, rx_burst), label = "burst-traffic");
 
     // Channel 4: Gradual flow - bounded(20), increasing rate
     let (tx_gradual, mut rx_gradual) = mpsc::channel::<f64>(20);
-    #[cfg(feature = "tokio-channels-console")]
-    let (tx_gradual, mut rx_gradual) =
-        tokio_channels_console::instrument!((tx_gradual, rx_gradual));
+    #[cfg(feature = "channels-console")]
+    let (tx_gradual, mut rx_gradual) = channels_console::instrument!((tx_gradual, rx_gradual));
 
     // Channel 5: Dropped early - unbounded, producer dies at 10s
     let (tx_drop_early, mut rx_drop_early) = mpsc::unbounded_channel::<bool>();
-    #[cfg(feature = "tokio-channels-console")]
+    #[cfg(feature = "channels-console")]
     let (tx_drop_early, mut rx_drop_early) =
-        tokio_channels_console::instrument!((tx_drop_early, rx_drop_early));
+        channels_console::instrument!((tx_drop_early, rx_drop_early));
 
     // Channel 6: Consumer dies - bounded(8), consumer stops at 15s
     let (tx_consumer_dies, mut rx_consumer_dies) = mpsc::channel::<Vec<u8>>(8);
-    #[cfg(feature = "tokio-channels-console")]
-    let (tx_consumer_dies, mut rx_consumer_dies) = tokio_channels_console::instrument!(
+    #[cfg(feature = "channels-console")]
+    let (tx_consumer_dies, mut rx_consumer_dies) = channels_console::instrument!(
         (tx_consumer_dies, rx_consumer_dies),
         label = "consumer-dies"
     );
 
     // Channel 7: Steady stream - unbounded, consistent 500ms rate
     let (tx_steady, mut rx_steady) = mpsc::unbounded_channel::<&str>();
-    #[cfg(feature = "tokio-channels-console")]
-    let (tx_steady, mut rx_steady) = tokio_channels_console::instrument!((tx_steady, rx_steady));
+    #[cfg(feature = "channels-console")]
+    let (tx_steady, mut rx_steady) = channels_console::instrument!((tx_steady, rx_steady));
 
     // Channel 8: Oneshot early - fires at 5 seconds
     let (tx_oneshot_early, rx_oneshot_early) = oneshot::channel::<String>();
-    #[cfg(feature = "tokio-channels-console")]
+    #[cfg(feature = "channels-console")]
     let (tx_oneshot_early, rx_oneshot_early) =
-        tokio_channels_console::instrument!((tx_oneshot_early, rx_oneshot_early));
+        channels_console::instrument!((tx_oneshot_early, rx_oneshot_early));
 
     // Channel 9: Oneshot mid - fires at 15 seconds
     let (tx_oneshot_mid, rx_oneshot_mid) = oneshot::channel::<u32>();
-    #[cfg(feature = "tokio-channels-console")]
+    #[cfg(feature = "channels-console")]
     let (tx_oneshot_mid, rx_oneshot_mid) =
-        tokio_channels_console::instrument!((tx_oneshot_mid, rx_oneshot_mid));
+        channels_console::instrument!((tx_oneshot_mid, rx_oneshot_mid));
 
     // Channel 10: Oneshot late - fires at 25 seconds
     let (tx_oneshot_late, rx_oneshot_late) = oneshot::channel::<i64>();
-    #[cfg(feature = "tokio-channels-console")]
-    let (tx_oneshot_late, rx_oneshot_late) = tokio_channels_console::instrument!(
-        (tx_oneshot_late, rx_oneshot_late),
-        label = "oneshot-late"
-    );
+    #[cfg(feature = "channels-console")]
+    let (tx_oneshot_late, rx_oneshot_late) =
+        channels_console::instrument!((tx_oneshot_late, rx_oneshot_late), label = "oneshot-late");
 
     // === Task 1: Fast data stream producer (10ms interval) ===
     tokio::spawn(async move {

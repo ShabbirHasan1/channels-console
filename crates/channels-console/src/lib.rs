@@ -336,7 +336,7 @@ fn init_stats_state() -> &'static StatsState {
 
         // Spawn the metrics HTTP server in the background
         // Check environment variable for custom port, default to 6770
-        let port = std::env::var("TOKIO_CHANNELS_CONSOLE_METRICS_PORT")
+        let port = std::env::var("channels_console_METRICS_PORT")
             .ok()
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(6770);
@@ -435,7 +435,7 @@ impl<T: Send + 'static> Instrument for (oneshot::Sender<T>, oneshot::Receiver<T>
 ///
 /// ```
 /// use tokio::sync::mpsc;
-/// use tokio_channels_console::instrument;
+/// use channels_console::instrument;
 ///
 /// #[tokio::main]
 /// async fn main() {
@@ -444,8 +444,8 @@ impl<T: Send + 'static> Instrument for (oneshot::Sender<T>, oneshot::Receiver<T>
 ///    let (tx, rx) = mpsc::channel::<String>(100);
 ///
 ///    // Instrument them only when the feature is enabled
-///    #[cfg(feature = "tokio-channels-console")]
-///    let (tx, rx) = tokio_channels_console::instrument!((tx, rx));
+///    #[cfg(feature = "channels-console")]
+///    let (tx, rx) = channels_console::instrument!((tx, rx));
 ///
 ///    // The channel works exactly the same way
 ///    tx.send("Hello".to_string()).await.unwrap();
@@ -456,10 +456,10 @@ impl<T: Send + 'static> Instrument for (oneshot::Sender<T>, oneshot::Receiver<T>
 ///
 /// ```rust,no_run
 /// use tokio::sync::mpsc;
-/// use tokio_channels_console::instrument;
+/// use channels_console::instrument;
 /// let (tx, rx) = mpsc::channel::<String>(10);
-/// #[cfg(feature = "tokio-channels-console")]
-/// let (tx, rx) = tokio_channels_console::instrument!((tx, rx), label = "task-queue");
+/// #[cfg(feature = "channels-console")]
+/// let (tx, rx) = channels_console::instrument!((tx, rx), label = "task-queue");
 /// ```
 ///
 #[macro_export]
@@ -497,7 +497,7 @@ fn start_metrics_server(addr: &str) {
     let server = match Server::http(addr) {
         Ok(s) => s,
         Err(e) => {
-            panic!("Failed to bind metrics server to {}: {}. Customize the port using the TOKIO_CHANNELS_CONSOLE_METRICS_PORT environment variable.", addr, e);
+            panic!("Failed to bind metrics server to {}: {}. Customize the port using the channels_console_METRICS_PORT environment variable.", addr, e);
         }
     };
 
@@ -536,7 +536,7 @@ fn start_metrics_server(addr: &str) {
 /// # Examples
 ///
 /// ```no_run
-/// use tokio_channels_console::{ChannelsGuardBuilder, Format};
+/// use channels_console::{ChannelsGuardBuilder, Format};
 ///
 /// let _guard = ChannelsGuardBuilder::new()
 ///     .format(Format::JsonPretty)
@@ -560,7 +560,7 @@ impl ChannelsGuardBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// use tokio_channels_console::{ChannelsGuardBuilder, Format};
+    /// use channels_console::{ChannelsGuardBuilder, Format};
     ///
     /// let _guard = ChannelsGuardBuilder::new()
     ///     .format(Format::Json)
@@ -595,7 +595,7 @@ impl Default for ChannelsGuardBuilder {
 /// # Examples
 ///
 /// ```no_run
-/// use tokio_channels_console::ChannelsGuard;
+/// use channels_console::ChannelsGuard;
 ///
 /// let _guard = ChannelsGuard::new();
 /// // Your code with instrumented channels here
@@ -624,7 +624,7 @@ impl ChannelsGuard {
     /// # Examples
     ///
     /// ```no_run
-    /// use tokio_channels_console::{ChannelsGuard, Format};
+    /// use channels_console::{ChannelsGuard, Format};
     ///
     /// let _guard = ChannelsGuard::new().format(Format::Json);
     /// ```
