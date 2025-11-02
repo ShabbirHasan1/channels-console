@@ -1,11 +1,9 @@
-# Real-time monitoring and metrics for your Tokio channels
+# Real-time monitoring and metrics for Rust channels
 [![Latest Version](https://img.shields.io/crates/v/channels-console.svg)](https://crates.io/crates/channels-console) [![GH Actions](https://github.com/pawurb/channels-console/actions/workflows/ci.yml/badge.svg)](https://github.com/pawurb/channels-console/actions)
 
 ![Console TUI Example](console-tui2.gif)
 
-This crate provides an easy-to-configure way to monitor Tokio channels. Track per-channel metrics such as queue depth, send/receive rates, and memory usage, directly from your terminal.
-
-[tokio-console](https://github.com/tokio-rs/console) is an awesome project, but it currently provides insights only into tasks and resources. [There are plans](https://github.com/tokio-rs/console/issues/278) to add support for `mpsc` channels, but it's still in progress. This lib tries to fill this gap, by offering a _quick & easy_ way to instrument Tokio channels in any Rust application.
+This crate provides an easy-to-configure way to monitor [std::sync](https://doc.rust-lang.org/stable/std/sync/mpsc/index.html), [Tokio](https://github.com/tokio-rs/tokio) and [futures-rs](https://github.com/rust-lang/futures-rs) channels (more flavors soon!). Track per-channel metrics such as queue depth, send/receive rates, and memory usage, directly from your terminal.
 
 ## Features
 
@@ -20,32 +18,31 @@ This crate provides an easy-to-configure way to monitor Tokio channels. Track pe
 `Cargo.toml`
 
 ```toml
-channels-console = { version = "0.1", optional = true }
+channels-console = { version = "0.1", optional = true, features=['tokio', 'futures'] }
 
 [features]
-channels-console = ["channels-console/channels-console"]
+channels-console = ["dep:channels-console"]
 ```
 
 This config ensures that the lib has **zero** overhead unless explicitly enabled via a `channels-console` feature.
 
-Next use `instrument!` macro to monitor selected Tokio channels:
+[std::sync](https://doc.rust-lang.org/stable/std/sync/mpsc/index.html) channels can be instrumented by default. Enable `tokio` and `futures` features for [Tokio](https://github.com/tokio-rs/tokio) and [futures-rs](https://github.com/rust-lang/futures-rs) channels, respectively.
+
+Next use `instrument!` macro to monitor selected channels:
 
 ```rust
-let (tx1, rx1) = mpsc::channel::<i32>(10);
+let (tx1, rx1) = tokio::sync::mpsc::channel::<i32>(10);
 #[cfg(feature = "channels-console")]
 let (tx1, rx1) = channels_console::instrument!((tx1, rx1));
 
-let (tx2, rx2) = mpsc::unbounded_channel::<UserData>();
+let (mut txb, mut rxb) = futures_channel::mpsc::channel::<i32>(10);
 #[cfg(feature = "channels-console")]
-let (tx2, rx2) = channels_console::instrument!((tx2, rx2));
+let (mut txb, mut rxb) = channels_console::instrument!((txb, rxb), capacity = 10);
 ```
 
-This is the only change you have to do in your codebase. `instrument!` macro returns exactly the same channel types so it remains 100% compatible.
+Futures and `std::sync` bounded channels don't provide an API exposing their size, so you have to provide `capacity` to the `instrument!` macro.
 
-Currently the library supports: 
-- `sync::mpsc::channel`
-- `sync::mpsc::unbounded_channel` 
-- `sync::oneshot` 
+This is the only change you have to do in your codebase. `instrument!` macro returns exactly the same channel types so it remains 100% compatible.
 
 Now, install `channels-console` TUI:
 
@@ -85,7 +82,7 @@ git clone git@github.com:pawurb/channels-console.git
 
 ```bash
 cd channels-console
-cargo run --example console_feed --features=channels-console
+cargo run --example console_feed_tokio --features=channels-console
 ```
 
 4. Run TUI (in a different terminal):
@@ -106,14 +103,27 @@ This library has just been released. I've tested it with several apps, and it co
 
 ## API
 
+### Supported Channel Types
+
+#### `std::sync` Channels
+- [`std::sync::mpsc::channel`](https://doc.rust-lang.org/std/sync/mpsc/fn.channel.html) 
+- [`std::sync::mpsc::sync_channel`](https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html) 
+
+#### Tokio Channels
+- [`tokio::sync::mpsc::channel`](https://docs.rs/tokio/latest/tokio/sync/mpsc/fn.channel.html) 
+- [`tokio::sync::mpsc::unbounded_channel`](https://docs.rs/tokio/latest/tokio/sync/mpsc/fn.unbounded_channel.html) 
+- [`tokio::sync::oneshot::channel`](https://docs.rs/tokio/latest/tokio/sync/oneshot/fn.channel.html) 
+
+#### Futures Channels
+- [`futures_channel::mpsc::channel`](https://docs.rs/futures-channel/latest/futures_channel/mpsc/fn.channel.html)
+- [`futures_channel::mpsc::unbounded`](https://docs.rs/futures-channel/latest/futures_channel/mpsc/fn.unbounded.html) 
+- [`futures_channel::oneshot::channel`](https://docs.rs/futures-channel/latest/futures_channel/oneshot/fn.channel.html) 
+
+_I'm planning to support more channel types. PRs are welcome!_
+
 ### `instrument!` Macro
 
 The `instrument!` macro is the primary way to monitor channels. It wraps channel creation expressions and returns instrumented versions that collect metrics.
-
-**Supported Channel Types:**
-- `tokio::sync::mpsc::channel` - Bounded MPSC channels
-- `tokio::sync::mpsc::unbounded_channel` - Unbounded MPSC channels
-- `tokio::sync::oneshot` - Oneshot channels
 
 **Basic Usage:**
 
@@ -151,6 +161,35 @@ let (tx, rx) = mpsc::channel::<Task>(10);
 #[cfg(feature = "channels-console")]
 let (tx, rx) = channels_console::instrument!((tx, rx), label = "task-queue");
 ```
+
+**Capacity Parameter Requirement:**
+
+⚠️ **Important:** For `std::sync::mpsc` and `futures::channel::mpsc` **bounded channels**, you **must** specify the `capacity` parameter because their APIs don't expose the capacity after creation:
+
+```rust
+use std::sync::mpsc;
+
+// std::sync::mpsc::sync_channel - MUST specify capacity
+let (tx, rx) = mpsc::sync_channel::<String>(10);
+#[cfg(feature = "channels-console")]
+let (tx, rx) = channels_console::instrument!((tx, rx), capacity = 10);
+
+// With label
+let (tx, rx) = mpsc::sync_channel::<i32>(10);
+#[cfg(feature = "channels-console")]
+let (tx, rx) = channels_console::instrument!((tx, rx), label = "worker-queue", capacity = 10);
+```
+
+```rust
+use futures_channel::mpsc;
+
+// futures bounded channel - MUST specify capacity
+let (tx, rx) = mpsc::channel::<String>(10);
+#[cfg(feature = "channels-console")]
+let (tx, rx) = channels_console::instrument!((tx, rx), capacity = 10);
+```
+
+Tokio channels don't require the capacity parameter because their capacity is accessible from the channel handles.
 
 ### `ChannelsGuard` - Printing Statistics on Drop
 
@@ -213,7 +252,7 @@ async fn main() {
 The HTTP metrics server runs on port `6770` by default. You can customize this using the `channels_console_METRICS_PORT` environment variable:
 
 ```bash
-channels_console_METRICS_PORT=8080 cargo run --features channels-console
+CHANNELS_CONSOLE_METRICS_PORT=8080 cargo run --features channels-console
 ```
 
 When using the TUI console, specify the matching port with the `--metrics-port` flag:

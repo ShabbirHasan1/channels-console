@@ -1,7 +1,6 @@
 #[cfg(test)]
 pub mod tests {
     use std::process::Command;
-    use tokio::time::{sleep, Duration};
 
     #[test]
     fn test_basic_output() {
@@ -9,9 +8,9 @@ pub mod tests {
             .args([
                 "run",
                 "-p",
-                "channels-console-test",
+                "channels-console-futures-test",
                 "--example",
-                "basic",
+                "basic_futures",
                 "--features",
                 "channels-console",
             ])
@@ -26,11 +25,9 @@ pub mod tests {
 
         assert!(!output.stderr.is_empty(), "Stderr is empty");
         let all_expected = [
-            "examples/basic.rs",
-            "hello-there",
-            "unbounded",
+            "examples/basic_futures.rs",
+            "oneshot-labeled",
             "bounded[10]",
-            "oneshot",
             "notified",
         ];
 
@@ -43,65 +40,15 @@ pub mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_metrics_endpoint() {
-        let mut child = tokio::process::Command::new("cargo")
-            .args([
-                "run",
-                "-p",
-                "channels-console-test",
-                "--example",
-                "basic",
-                "--features",
-                "channels-console",
-            ])
-            .spawn()
-            .expect("Failed to spawn command");
-
-        let mut json_text = String::new();
-        let mut last_error = None;
-
-        for _attempt in 0..4 {
-            sleep(Duration::from_millis(500)).await;
-
-            match ureq::get("http://127.0.0.1:6770/metrics").call() {
-                Ok(response) => {
-                    json_text = response
-                        .into_string()
-                        .expect("Failed to read response body");
-                    last_error = None;
-                    break;
-                }
-                Err(e) => {
-                    last_error = Some(format!("Request error: {}", e));
-                }
-            }
-        }
-
-        if let Some(error) = last_error {
-            panic!("Failed after 4 retries: {}", error);
-        }
-
-        let all_expected = ["basic.rs", "hello-there"];
-        for expected in all_expected {
-            assert!(
-                json_text.contains(expected),
-                "Expected:\n{expected}\n\nGot:\n{json_text}",
-            );
-        }
-
-        child.kill().await.expect("Failed to kill child process");
-    }
-
     #[test]
     fn test_basic_json_output() {
         let output = Command::new("cargo")
             .args([
                 "run",
                 "-p",
-                "channels-console-test",
+                "channels-console-futures-test",
                 "--example",
-                "basic_json",
+                "basic_json_futures",
                 "--features",
                 "channels-console",
             ])
@@ -115,8 +62,9 @@ pub mod tests {
         );
 
         let all_expected = [
-            "\"label\": \"examples/basic_json.rs:",
-            "\"label\": \"hello-there\"",
+            "\"label\": \"unbounded\"",
+            "\"label\": \"bounded\"",
+            "\"label\": \"oneshot\"",
         ];
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -135,9 +83,9 @@ pub mod tests {
             .args([
                 "run",
                 "-p",
-                "channels-console-test",
+                "channels-console-futures-test",
                 "--example",
-                "closed",
+                "closed_futures",
                 "--features",
                 "channels-console",
             ])
@@ -174,9 +122,9 @@ pub mod tests {
             .args([
                 "run",
                 "-p",
-                "channels-console-test",
+                "channels-console-futures-test",
                 "--example",
-                "oneshot_closed",
+                "oneshot_closed_futures",
                 "--features",
                 "channels-console",
             ])
@@ -194,7 +142,7 @@ pub mod tests {
             stderr
         );
 
-        let all_expected = ["| closed |", "oneshot_closed.rs:"];
+        let all_expected = ["| closed |", "oneshot-closed"];
 
         for expected in all_expected {
             assert!(
@@ -202,5 +150,65 @@ pub mod tests {
                 "Expected:\n{expected}\n\nGot:\n{stdout}",
             );
         }
+    }
+
+    #[test]
+    fn test_metrics_endpoint() {
+        use std::{process::Command, thread::sleep, time::Duration};
+
+        // Spawn example process
+        let mut child = Command::new("cargo")
+            .args([
+                "run",
+                "-p",
+                "channels-console-futures-test",
+                "--example",
+                "basic_futures",
+                "--features",
+                "channels-console",
+            ])
+            .spawn()
+            .expect("Failed to spawn command");
+
+        let mut json_text = String::new();
+        let mut last_error = None;
+
+        for _attempt in 0..4 {
+            sleep(Duration::from_millis(500));
+
+            match ureq::get("http://127.0.0.1:6770/metrics").call() {
+                Ok(response) => {
+                    json_text = response
+                        .into_string()
+                        .expect("Failed to read response body");
+                    last_error = None;
+                    break;
+                }
+                Err(e) => {
+                    last_error = Some(format!("Request error: {}", e));
+                }
+            }
+        }
+
+        if let Some(error) = last_error {
+            let _ = child.kill();
+            panic!("Failed after 4 retries: {}", error);
+        }
+
+        let all_expected = [
+            "basic_futures.rs",
+            "oneshot-labeled",
+            "bounded[10]",
+            "notified",
+        ];
+        for expected in all_expected {
+            assert!(
+                json_text.contains(expected),
+                "Expected:\n{expected}\n\nGot:\n{json_text}",
+            );
+        }
+
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }

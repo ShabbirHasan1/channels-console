@@ -1,16 +1,14 @@
-use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot;
-
 use crossbeam_channel::{unbounded, Sender as CbSender};
-use prettytable::{Cell, Row, Table};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
-use std::time::Instant;
-use tiny_http::{Response, Server};
 
+pub mod channels_guard;
+pub use channels_guard::{ChannelsGuard, ChannelsGuardBuilder};
+
+use crate::http_api::start_metrics_server;
+mod http_api;
 mod wrappers;
-use wrappers::{wrap_channel, wrap_oneshot, wrap_unbounded};
 
 /// Type of a channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,21 +126,13 @@ impl<'de> Deserialize<'de> for ChannelState {
 /// Statistics for a single instrumented channel.
 #[derive(Debug, Clone)]
 pub(crate) struct ChannelStats {
-    /// ID of the channel (full path used as HashMap key).
     pub(crate) id: &'static str,
-    /// Optional user label; if None, display derives from `id`.
     pub(crate) label: Option<&'static str>,
-    /// Type of channel.
     pub(crate) channel_type: ChannelType,
-    /// Current state of the channel.
     pub(crate) state: ChannelState,
-    /// Number of messages sent through this channel.
     pub(crate) sent_count: u64,
-    /// Number of messages received from this channel.
     pub(crate) received_count: u64,
-    /// Type name of messages in this channel.
     pub(crate) type_name: &'static str,
-    /// Size in bytes of the message type.
     pub(crate) type_size: usize,
 }
 
@@ -151,12 +141,10 @@ impl ChannelStats {
         self.sent_count.saturating_sub(self.received_count)
     }
 
-    /// Calculate total bytes sent through this channel.
     pub fn total_bytes(&self) -> u64 {
         self.sent_count * self.type_size as u64
     }
 
-    /// Calculate bytes currently queued in this channel.
     pub fn queued_bytes(&self) -> u64 {
         self.queued() * self.type_size as u64
     }
@@ -165,27 +153,16 @@ impl ChannelStats {
 /// Serializable version of channel statistics for JSON responses.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableChannelStats {
-    /// ID of the channel.
     pub id: String,
-    /// Optional user label; if None, display derives from `id`.
     pub label: String,
-    /// Type of channel (includes capacity for bounded channels).
     pub channel_type: ChannelType,
-    /// Current state of the channel.
     pub state: ChannelState,
-    /// Number of messages sent through this channel.
     pub sent_count: u64,
-    /// Number of messages received from this channel.
     pub received_count: u64,
-    /// Current queue size (sent - received).
     pub queued: u64,
-    /// Type name of messages in this channel.
     pub type_name: String,
-    /// Size in bytes of the message type.
     pub type_size: usize,
-    /// Total bytes sent through this channel.
     pub total_bytes: u64,
-    /// Bytes currently queued in this channel.
     pub queued_bytes: u64,
 }
 
@@ -262,6 +239,7 @@ pub(crate) enum StatsEvent {
     Closed {
         id: &'static str,
     },
+    #[allow(dead_code)]
     Notified {
         id: &'static str,
     },
@@ -336,7 +314,7 @@ fn init_stats_state() -> &'static StatsState {
 
         // Spawn the metrics HTTP server in the background
         // Check environment variable for custom port, default to 6770
-        let port = std::env::var("channels_console_METRICS_PORT")
+        let port = std::env::var("CHANNELS_CONSOLE_METRICS_PORT")
             .ok()
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(6770);
@@ -404,27 +382,23 @@ pub fn format_bytes(bytes: u64) -> String {
 #[doc(hidden)]
 pub trait Instrument {
     type Output;
-    fn instrument(self, channel_id: &'static str, label: Option<&'static str>) -> Self::Output;
+    fn instrument(
+        self,
+        channel_id: &'static str,
+        label: Option<&'static str>,
+        capacity: Option<usize>,
+    ) -> Self::Output;
 }
 
-impl<T: Send + 'static> Instrument for (Sender<T>, Receiver<T>) {
-    type Output = (Sender<T>, Receiver<T>);
-    fn instrument(self, channel_id: &'static str, label: Option<&'static str>) -> Self::Output {
-        wrap_channel(self, channel_id, label)
-    }
-}
-
-impl<T: Send + 'static> Instrument for (UnboundedSender<T>, UnboundedReceiver<T>) {
-    type Output = (UnboundedSender<T>, UnboundedReceiver<T>);
-    fn instrument(self, channel_id: &'static str, label: Option<&'static str>) -> Self::Output {
-        wrap_unbounded(self, channel_id, label)
-    }
-}
-
-impl<T: Send + 'static> Instrument for (oneshot::Sender<T>, oneshot::Receiver<T>) {
-    type Output = (oneshot::Sender<T>, oneshot::Receiver<T>);
-    fn instrument(self, channel_id: &'static str, label: Option<&'static str>) -> Self::Output {
-        wrap_oneshot(self, channel_id, label)
+cfg_if::cfg_if! {
+    if #[cfg(any(feature = "tokio", feature = "futures"))] {
+        use std::sync::LazyLock;
+        pub static RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_time()
+                .build()
+                .unwrap()
+        });
     }
 }
 
@@ -462,16 +436,54 @@ impl<T: Send + 'static> Instrument for (oneshot::Sender<T>, oneshot::Receiver<T>
 /// let (tx, rx) = channels_console::instrument!((tx, rx), label = "task-queue");
 /// ```
 ///
+/// # Important: Capacity Parameter
+///
+/// **For `std::sync::mpsc` and `futures::channel::mpsc` bounded channels**, you **must** specify the `capacity` parameter
+/// because their APIs don't expose the capacity after creation:
+///
+/// ```rust,no_run
+/// use std::sync::mpsc;
+/// use channels_console::instrument;
+///
+/// // std::sync::mpsc::sync_channel - MUST specify capacity
+/// let (tx, rx) = mpsc::sync_channel::<String>(10);
+/// let (tx, rx) = instrument!((tx, rx), capacity = 10);
+///
+/// // With label
+/// let (tx, rx) = mpsc::sync_channel::<String>(10);
+/// let (tx, rx) = instrument!((tx, rx), label = "my-channel", capacity = 10);
+/// ```
+///
+/// Tokio channels don't require this because their capacity is accessible from the channel handles.
+///
 #[macro_export]
 macro_rules! instrument {
     ($expr:expr) => {{
         const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
-        $crate::Instrument::instrument($expr, CHANNEL_ID, None)
+        $crate::Instrument::instrument($expr, CHANNEL_ID, None, None)
     }};
 
     ($expr:expr, label = $label:literal) => {{
         const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
-        $crate::Instrument::instrument($expr, CHANNEL_ID, Some($label))
+        $crate::Instrument::instrument($expr, CHANNEL_ID, Some($label), None)
+    }};
+
+    ($expr:expr, capacity = $capacity:expr) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::Instrument::instrument($expr, CHANNEL_ID, None, Some($capacity))
+    }};
+
+    ($expr:expr, label = $label:literal, capacity = $capacity:expr) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::Instrument::instrument($expr, CHANNEL_ID, Some($label), Some($capacity))
+    }};
+
+    ($expr:expr, capacity = $capacity:expr, label = $label:literal) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::Instrument::instrument($expr, CHANNEL_ID, Some($label), Some($capacity))
     }};
 }
 
@@ -491,221 +503,4 @@ fn get_serializable_stats() -> Vec<SerializableChannelStats> {
 
     stats.sort_by(|a, b| a.id.cmp(&b.id));
     stats
-}
-
-fn start_metrics_server(addr: &str) {
-    let server = match Server::http(addr) {
-        Ok(s) => s,
-        Err(e) => {
-            panic!("Failed to bind metrics server to {}: {}. Customize the port using the channels_console_METRICS_PORT environment variable.", addr, e);
-        }
-    };
-
-    println!("Channel metrics server listening on http://{}", addr);
-
-    for request in server.incoming_requests() {
-        if request.url() == "/metrics" {
-            let stats = get_serializable_stats();
-            match serde_json::to_string(&stats) {
-                Ok(json) => {
-                    let response = Response::from_string(json).with_header(
-                        tiny_http::Header::from_bytes(
-                            &b"Content-Type"[..],
-                            &b"application/json"[..],
-                        )
-                        .unwrap(),
-                    );
-                    let _ = request.respond(response);
-                }
-                Err(e) => {
-                    eprintln!("Failed to serialize metrics: {}", e);
-                    let response = Response::from_string(format!("Internal server error: {}", e))
-                        .with_status_code(500);
-                    let _ = request.respond(response);
-                }
-            }
-        } else {
-            let response = Response::from_string("Not found").with_status_code(404);
-            let _ = request.respond(response);
-        }
-    }
-}
-
-/// Builder for creating a ChannelsGuard with custom configuration.
-///
-/// # Examples
-///
-/// ```no_run
-/// use channels_console::{ChannelsGuardBuilder, Format};
-///
-/// let _guard = ChannelsGuardBuilder::new()
-///     .format(Format::JsonPretty)
-///     .build();
-/// // Statistics will be printed as pretty JSON when _guard is dropped
-/// ```
-pub struct ChannelsGuardBuilder {
-    format: Format,
-}
-
-impl ChannelsGuardBuilder {
-    /// Create a new channels guard builder.
-    pub fn new() -> Self {
-        Self {
-            format: Format::default(),
-        }
-    }
-
-    /// Set the output format for statistics.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use channels_console::{ChannelsGuardBuilder, Format};
-    ///
-    /// let _guard = ChannelsGuardBuilder::new()
-    ///     .format(Format::Json)
-    ///     .build();
-    /// ```
-    pub fn format(mut self, format: Format) -> Self {
-        self.format = format;
-        self
-    }
-
-    /// Build and return the ChannelsGuard.
-    /// Statistics will be printed when the guard is dropped.
-    pub fn build(self) -> ChannelsGuard {
-        ChannelsGuard {
-            start_time: Instant::now(),
-            format: self.format,
-        }
-    }
-}
-
-impl Default for ChannelsGuardBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Guard for channel statistics collection.
-/// When dropped, prints a summary of all instrumented channels and their statistics.
-///
-/// Use `ChannelsGuardBuilder` to create a guard with custom configuration.
-///
-/// # Examples
-///
-/// ```no_run
-/// use channels_console::ChannelsGuard;
-///
-/// let _guard = ChannelsGuard::new();
-/// // Your code with instrumented channels here
-/// // Statistics will be printed when _guard is dropped
-/// ```
-pub struct ChannelsGuard {
-    start_time: Instant,
-    format: Format,
-}
-
-impl ChannelsGuard {
-    /// Create a new channels guard with default settings (table format).
-    /// Statistics will be printed when this guard is dropped.
-    ///
-    /// For custom configuration, use `ChannelsGuardBuilder::new()` instead.
-    pub fn new() -> Self {
-        Self {
-            start_time: Instant::now(),
-            format: Format::default(),
-        }
-    }
-
-    /// Set the output format for statistics.
-    /// This is a convenience method for backward compatibility.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use channels_console::{ChannelsGuard, Format};
-    ///
-    /// let _guard = ChannelsGuard::new().format(Format::Json);
-    /// ```
-    pub fn format(mut self, format: Format) -> Self {
-        self.format = format;
-        self
-    }
-}
-
-impl Default for ChannelsGuard {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Drop for ChannelsGuard {
-    fn drop(&mut self) {
-        let elapsed = self.start_time.elapsed();
-        let stats = get_channel_stats();
-
-        if stats.is_empty() {
-            println!("\nNo instrumented channels found.");
-            return;
-        }
-
-        match self.format {
-            Format::Table => {
-                let mut table = Table::new();
-
-                table.add_row(Row::new(vec![
-                    Cell::new("Channel"),
-                    Cell::new("Type"),
-                    Cell::new("State"),
-                    Cell::new("Sent"),
-                    Cell::new("Mem"),
-                    Cell::new("Received"),
-                    Cell::new("Queued"),
-                    Cell::new("Mem"),
-                ]));
-
-                let mut sorted_stats: Vec<_> = stats.into_iter().collect();
-                sorted_stats.sort_by(|a, b| {
-                    let la = resolve_label(a.1.id, a.1.label);
-                    let lb = resolve_label(b.1.id, b.1.label);
-                    la.cmp(&lb)
-                });
-
-                for (_key, channel_stats) in sorted_stats {
-                    let label = resolve_label(channel_stats.id, channel_stats.label);
-                    table.add_row(Row::new(vec![
-                        Cell::new(&label),
-                        Cell::new(&channel_stats.channel_type.to_string()),
-                        Cell::new(channel_stats.state.as_str()),
-                        Cell::new(&channel_stats.sent_count.to_string()),
-                        Cell::new(&format_bytes(channel_stats.total_bytes())),
-                        Cell::new(&channel_stats.received_count.to_string()),
-                        Cell::new(&channel_stats.queued().to_string()),
-                        Cell::new(&format_bytes(channel_stats.queued_bytes())),
-                    ]));
-                }
-
-                println!(
-                    "\n=== Channel Statistics (runtime: {:.2}s) ===",
-                    elapsed.as_secs_f64()
-                );
-                table.printstd();
-            }
-            Format::Json => {
-                let serializable_stats = get_serializable_stats();
-                match serde_json::to_string(&serializable_stats) {
-                    Ok(json) => println!("{}", json),
-                    Err(e) => eprintln!("Failed to serialize statistics to JSON: {}", e),
-                }
-            }
-            Format::JsonPretty => {
-                let serializable_stats = get_serializable_stats();
-                match serde_json::to_string_pretty(&serializable_stats) {
-                    Ok(json) => println!("{}", json),
-                    Err(e) => eprintln!("Failed to serialize statistics to pretty JSON: {}", e),
-                }
-            }
-        }
-    }
 }

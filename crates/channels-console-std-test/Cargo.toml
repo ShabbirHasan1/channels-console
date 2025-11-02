@@ -1,0 +1,11 @@
+[package]
+name = "channels-console-std-test"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+channels-console = { workspace = true, optional = true }
+
+[features]
+channels-console = ["dep:channels-console"]

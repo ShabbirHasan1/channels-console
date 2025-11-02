@@ -1,0 +1,184 @@
+use std::time::Instant;
+
+use prettytable::{Cell, Row, Table};
+
+use crate::{format_bytes, get_channel_stats, get_serializable_stats, resolve_label, Format};
+
+/// Builder for creating a ChannelsGuard with custom configuration.
+///
+/// # Examples
+///
+/// ```no_run
+/// use channels_console::{ChannelsGuardBuilder, Format};
+///
+/// let _guard = ChannelsGuardBuilder::new()
+///     .format(Format::JsonPretty)
+///     .build();
+/// // Statistics will be printed as pretty JSON when _guard is dropped
+/// ```
+pub struct ChannelsGuardBuilder {
+    format: Format,
+}
+
+impl ChannelsGuardBuilder {
+    /// Create a new channels guard builder.
+    pub fn new() -> Self {
+        Self {
+            format: Format::default(),
+        }
+    }
+
+    /// Set the output format for statistics.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use channels_console::{ChannelsGuardBuilder, Format};
+    ///
+    /// let _guard = ChannelsGuardBuilder::new()
+    ///     .format(Format::Json)
+    ///     .build();
+    /// ```
+    pub fn format(mut self, format: Format) -> Self {
+        self.format = format;
+        self
+    }
+
+    /// Build and return the ChannelsGuard.
+    /// Statistics will be printed when the guard is dropped.
+    pub fn build(self) -> ChannelsGuard {
+        ChannelsGuard {
+            start_time: Instant::now(),
+            format: self.format,
+        }
+    }
+}
+
+impl Default for ChannelsGuardBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Guard for channel statistics collection.
+/// When dropped, prints a summary of all instrumented channels and their statistics.
+///
+/// Use `ChannelsGuardBuilder` to create a guard with custom configuration.
+///
+/// # Examples
+///
+/// ```no_run
+/// use channels_console::ChannelsGuard;
+///
+/// let _guard = ChannelsGuard::new();
+/// // Your code with instrumented channels here
+/// // Statistics will be printed when _guard is dropped
+/// ```
+pub struct ChannelsGuard {
+    start_time: Instant,
+    format: Format,
+}
+
+impl ChannelsGuard {
+    /// Create a new channels guard with default settings (table format).
+    /// Statistics will be printed when this guard is dropped.
+    ///
+    /// For custom configuration, use `ChannelsGuardBuilder::new()` instead.
+    pub fn new() -> Self {
+        Self {
+            start_time: Instant::now(),
+            format: Format::default(),
+        }
+    }
+
+    /// Set the output format for statistics.
+    /// This is a convenience method for backward compatibility.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use channels_console::{ChannelsGuard, Format};
+    ///
+    /// let _guard = ChannelsGuard::new().format(Format::Json);
+    /// ```
+    pub fn format(mut self, format: Format) -> Self {
+        self.format = format;
+        self
+    }
+}
+
+impl Default for ChannelsGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for ChannelsGuard {
+    fn drop(&mut self) {
+        let elapsed = self.start_time.elapsed();
+        let stats = get_channel_stats();
+
+        if stats.is_empty() {
+            println!("\nNo instrumented channels found.");
+            return;
+        }
+
+        match self.format {
+            Format::Table => {
+                let mut table = Table::new();
+
+                table.add_row(Row::new(vec![
+                    Cell::new("Channel"),
+                    Cell::new("Type"),
+                    Cell::new("State"),
+                    Cell::new("Sent"),
+                    Cell::new("Mem"),
+                    Cell::new("Received"),
+                    Cell::new("Queued"),
+                    Cell::new("Mem"),
+                ]));
+
+                let mut sorted_stats: Vec<_> = stats.into_iter().collect();
+                sorted_stats.sort_by(|a, b| {
+                    let la = resolve_label(a.1.id, a.1.label);
+                    let lb = resolve_label(b.1.id, b.1.label);
+                    la.cmp(&lb)
+                });
+
+                for (_key, channel_stats) in sorted_stats {
+                    let label = resolve_label(channel_stats.id, channel_stats.label);
+                    table.add_row(Row::new(vec![
+                        Cell::new(&label),
+                        Cell::new(&channel_stats.channel_type.to_string()),
+                        Cell::new(channel_stats.state.as_str()),
+                        Cell::new(&channel_stats.sent_count.to_string()),
+                        Cell::new(&format_bytes(channel_stats.total_bytes())),
+                        Cell::new(&channel_stats.received_count.to_string()),
+                        Cell::new(&channel_stats.queued().to_string()),
+                        Cell::new(&format_bytes(channel_stats.queued_bytes())),
+                    ]));
+                }
+
+                println!(
+                    "\n=== Channel Statistics (runtime: {:.2}s) ===",
+                    elapsed.as_secs_f64()
+                );
+                table.printstd();
+            }
+            Format::Json => {
+                let serializable_stats = get_serializable_stats();
+                match serde_json::to_string(&serializable_stats) {
+                    Ok(json) => println!("{}", json),
+                    Err(e) => eprintln!("Failed to serialize statistics to JSON: {}", e),
+                }
+            }
+            Format::JsonPretty => {
+                let serializable_stats = get_serializable_stats();
+                match serde_json::to_string_pretty(&serializable_stats) {
+                    Ok(json) => println!("{}", json),
+                    Err(e) => eprintln!("Failed to serialize statistics to pretty JSON: {}", e),
+                }
+            }
+        }
+    }
+}

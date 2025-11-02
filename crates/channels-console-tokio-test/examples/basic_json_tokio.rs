@@ -1,21 +1,21 @@
-use tokio::sync::{mpsc, oneshot};
-
 #[allow(unused_mut)]
 #[tokio::main]
 async fn main() {
     #[cfg(feature = "channels-console")]
-    let _channels_guard = channels_console::ChannelsGuard::new();
+    let _channels_guard = channels_console::ChannelsGuardBuilder::new()
+        .format(channels_console::Format::JsonPretty)
+        .build();
 
-    let (txa, mut _rxa) = mpsc::unbounded_channel::<i32>();
+    let (txa, mut _rxa) = tokio::sync::mpsc::unbounded_channel::<i32>();
 
     #[cfg(feature = "channels-console")]
     let (txa, _rxa) = channels_console::instrument!((txa, _rxa));
 
-    let (txb, mut rxb) = mpsc::channel::<i32>(10);
+    let (txb, mut rxb) = tokio::sync::mpsc::channel::<i32>(10);
     #[cfg(feature = "channels-console")]
     let (txb, mut rxb) = channels_console::instrument!((txb, rxb));
 
-    let (txc, rxc) = oneshot::channel::<String>();
+    let (txc, rxc) = tokio::sync::oneshot::channel::<String>();
     #[cfg(feature = "channels-console")]
     let (txc, rxc) = channels_console::instrument!((txc, rxc), label = "hello-there");
 
@@ -50,9 +50,6 @@ async fn main() {
     oneshot_receiver_handle
         .await
         .expect("Oneshot receiver task failed");
-
-    #[cfg(feature = "channels-console")]
-    drop(_channels_guard);
 
     while let Some(msg) = rxb.recv().await {
         println!("[Receiver] Received message: {}", msg);

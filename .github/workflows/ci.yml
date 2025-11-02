@@ -64,10 +64,16 @@ jobs:
           cargo audit --ignore RUSTSEC-2023-0071
       - name: Run doc tests
         run: |
-          cargo test --doc --features=channels-console -p channels-console
+          cargo test --doc --features='tokio,futures,channels-console' -p channels-console
       - name: Run lib tests
         run: | 
           cargo test --lib --features channels-console
-      - name: Run integration tests
+      - name: Run std integration tests
         run: | 
-          cargo test --test cli_tests -- --nocapture --test-threads=1
+          cargo test --test cli_tests_std -- --nocapture --test-threads=1
+      - name: Run tokio integration tests
+        run: | 
+          cargo test --test cli_tests_tokio -- --nocapture --test-threads=1
+      - name: Run futures integration tests
+        run: | 
+          cargo test --test cli_tests_futures -- --nocapture --test-threads=1

@@ -1,7 +1,9 @@
 [workspace]
 members = [
     "crates/channels-console",
-    "crates/channels-console-test",
+    "crates/channels-console-tokio-test",
+    "crates/channels-console-futures-test",
+    "crates/channels-console-std-test",
 ]
 resolver = "2"
 
