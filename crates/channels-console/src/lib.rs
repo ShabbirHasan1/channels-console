@@ -390,6 +390,20 @@ pub trait Instrument {
     ) -> Self::Output;
 }
 
+/// Trait for instrumenting channels with message logging.
+///
+/// This trait is not intended for direct use. Use the `instrument!` macro with `log = true` instead.
+#[doc(hidden)]
+pub trait InstrumentLog {
+    type Output;
+    fn instrument_log(
+        self,
+        channel_id: &'static str,
+        label: Option<&'static str>,
+        capacity: Option<usize>,
+    ) -> Self::Output;
+}
+
 cfg_if::cfg_if! {
     if #[cfg(any(feature = "tokio", feature = "futures"))] {
         use std::sync::LazyLock;
@@ -484,6 +498,70 @@ macro_rules! instrument {
         const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
         const _: usize = $capacity;
         $crate::Instrument::instrument($expr, CHANNEL_ID, Some($label), Some($capacity))
+    }};
+
+    // Variants with log = true
+    ($expr:expr, log = true) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, None, None)
+    }};
+
+    ($expr:expr, label = $label:literal, log = true) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, Some($label), None)
+    }};
+
+    ($expr:expr, log = true, label = $label:literal) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, Some($label), None)
+    }};
+
+    ($expr:expr, capacity = $capacity:expr, log = true) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, None, Some($capacity))
+    }};
+
+    ($expr:expr, log = true, capacity = $capacity:expr) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, None, Some($capacity))
+    }};
+
+    ($expr:expr, label = $label:literal, capacity = $capacity:expr, log = true) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, Some($label), Some($capacity))
+    }};
+
+    ($expr:expr, label = $label:literal, log = true, capacity = $capacity:expr) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, Some($label), Some($capacity))
+    }};
+
+    ($expr:expr, capacity = $capacity:expr, label = $label:literal, log = true) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, Some($label), Some($capacity))
+    }};
+
+    ($expr:expr, capacity = $capacity:expr, log = true, label = $label:literal) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, Some($label), Some($capacity))
+    }};
+
+    ($expr:expr, log = true, label = $label:literal, capacity = $capacity:expr) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, Some($label), Some($capacity))
+    }};
+
+    ($expr:expr, log = true, capacity = $capacity:expr, label = $label:literal) => {{
+        const CHANNEL_ID: &'static str = concat!(file!(), ":", line!());
+        const _: usize = $capacity;
+        $crate::InstrumentLog::instrument_log($expr, CHANNEL_ID, Some($label), Some($capacity))
     }};
 }
 

@@ -6,13 +6,19 @@ use tokio::sync::oneshot;
 use crate::RT;
 use crate::{init_stats_state, ChannelType, StatsEvent};
 
-/// Wrap the inner channel with proxy ends. Returns (outer_tx, outer_rx).
-/// All messages pass through the two forwarders.
-pub(crate) fn wrap_channel<T: Send + 'static>(
+/// Internal implementation for wrapping bounded Tokio channels with optional logging.
+fn wrap_channel_impl<T, F1, F2>(
     inner: (Sender<T>, Receiver<T>),
     channel_id: &'static str,
     label: Option<&'static str>,
-) -> (Sender<T>, Receiver<T>) {
+    mut log_on_send: F1,
+    mut log_on_recv: F2,
+) -> (Sender<T>, Receiver<T>)
+where
+    T: Send + 'static,
+    F1: FnMut(&T) -> Option<String> + Send + 'static,
+    F2: FnMut(&T) -> Option<String> + Send + 'static,
+{
     let (inner_tx, mut inner_rx) = inner;
     let type_name = std::any::type_name::<T>();
 
@@ -43,6 +49,9 @@ pub(crate) fn wrap_channel<T: Send + 'static>(
                 msg = to_inner_rx.recv() => {
                     match msg {
                         Some(msg) => {
+                            if let Some(log_msg) = log_on_send(&msg) {
+                                // eprintln!("[{}] SEND: {}", channel_id, log_msg);
+                            }
                             if inner_tx.send(msg).await.is_err() {
                                 to_inner_rx.close();
                                 break;
@@ -70,6 +79,9 @@ pub(crate) fn wrap_channel<T: Send + 'static>(
                 msg = inner_rx.recv() => {
                     match msg {
                         Some(msg) => {
+                            if let Some(log_msg) = log_on_recv(&msg) {
+                                // eprintln!("[{}] RECV: {}", channel_id, log_msg);
+                            }
                             if from_inner_tx.send(msg).await.is_ok() {
                                 let _ = stats_tx_recv.send(StatsEvent::MessageReceived { id: channel_id });
                             } else {
@@ -94,12 +106,44 @@ pub(crate) fn wrap_channel<T: Send + 'static>(
     (outer_tx, outer_rx)
 }
 
-/// Wrap an unbounded channel with proxy ends. Returns (outer_tx, outer_rx).
-pub(crate) fn wrap_unbounded<T: Send + 'static>(
+/// Wrap the inner channel with proxy ends. Returns (outer_tx, outer_rx).
+/// All messages pass through the two forwarders.
+pub(crate) fn wrap_channel<T: Send + 'static>(
+    inner: (Sender<T>, Receiver<T>),
+    channel_id: &'static str,
+    label: Option<&'static str>,
+) -> (Sender<T>, Receiver<T>) {
+    wrap_channel_impl(inner, channel_id, label, |_| None, |_| None)
+}
+
+/// Wrap a bounded Tokio channel with logging enabled. Returns (outer_tx, outer_rx).
+pub(crate) fn wrap_channel_log<T: Send + std::fmt::Debug + 'static>(
+    inner: (Sender<T>, Receiver<T>),
+    channel_id: &'static str,
+    label: Option<&'static str>,
+) -> (Sender<T>, Receiver<T>) {
+    wrap_channel_impl(
+        inner,
+        channel_id,
+        label,
+        |msg| Some(format!("{:?}", msg)),
+        |msg| Some(format!("{:?}", msg)),
+    )
+}
+
+/// Internal implementation for wrapping unbounded Tokio channels with optional logging.
+fn wrap_unbounded_impl<T, F1, F2>(
     inner: (UnboundedSender<T>, UnboundedReceiver<T>),
     channel_id: &'static str,
     label: Option<&'static str>,
-) -> (UnboundedSender<T>, UnboundedReceiver<T>) {
+    mut log_on_send: F1,
+    mut log_on_recv: F2,
+) -> (UnboundedSender<T>, UnboundedReceiver<T>)
+where
+    T: Send + 'static,
+    F1: FnMut(&T) -> Option<String> + Send + 'static,
+    F2: FnMut(&T) -> Option<String> + Send + 'static,
+{
     let (inner_tx, mut inner_rx) = inner;
     let type_name = std::any::type_name::<T>();
 
@@ -129,6 +173,9 @@ pub(crate) fn wrap_unbounded<T: Send + 'static>(
                 msg = to_inner_rx.recv() => {
                     match msg {
                         Some(msg) => {
+                            if let Some(log_msg) = log_on_send(&msg) {
+                                // eprintln!("[{}] SEND: {}", channel_id, log_msg);
+                            }
                             if inner_tx.send(msg).is_err() {
                                 to_inner_rx.close();
                                 break;
@@ -156,6 +203,9 @@ pub(crate) fn wrap_unbounded<T: Send + 'static>(
                 msg = inner_rx.recv() => {
                     match msg {
                         Some(msg) => {
+                            if let Some(log_msg) = log_on_recv(&msg) {
+                                // eprintln!("[{}] RECV: {}", channel_id, log_msg);
+                            }
                             if from_inner_tx.send(msg).is_ok() {
                                 let _ = stats_tx_recv.send(StatsEvent::MessageReceived { id: channel_id });
                             } else {
@@ -181,12 +231,43 @@ pub(crate) fn wrap_unbounded<T: Send + 'static>(
     (outer_tx, outer_rx)
 }
 
-/// Wrap a oneshot channel with proxy ends. Returns (outer_tx, outer_rx).
-pub(crate) fn wrap_oneshot<T: Send + 'static>(
+/// Wrap an unbounded channel with proxy ends. Returns (outer_tx, outer_rx).
+pub(crate) fn wrap_unbounded<T: Send + 'static>(
+    inner: (UnboundedSender<T>, UnboundedReceiver<T>),
+    channel_id: &'static str,
+    label: Option<&'static str>,
+) -> (UnboundedSender<T>, UnboundedReceiver<T>) {
+    wrap_unbounded_impl(inner, channel_id, label, |_| None, |_| None)
+}
+
+/// Wrap an unbounded Tokio channel with logging enabled. Returns (outer_tx, outer_rx).
+pub(crate) fn wrap_unbounded_log<T: Send + std::fmt::Debug + 'static>(
+    inner: (UnboundedSender<T>, UnboundedReceiver<T>),
+    channel_id: &'static str,
+    label: Option<&'static str>,
+) -> (UnboundedSender<T>, UnboundedReceiver<T>) {
+    wrap_unbounded_impl(
+        inner,
+        channel_id,
+        label,
+        |msg| Some(format!("{:?}", msg)),
+        |msg| Some(format!("{:?}", msg)),
+    )
+}
+
+/// Internal implementation for wrapping oneshot Tokio channels with optional logging.
+fn wrap_oneshot_impl<T, F1, F2>(
     inner: (oneshot::Sender<T>, oneshot::Receiver<T>),
     channel_id: &'static str,
     label: Option<&'static str>,
-) -> (oneshot::Sender<T>, oneshot::Receiver<T>) {
+    mut log_on_send: F1,
+    mut log_on_recv: F2,
+) -> (oneshot::Sender<T>, oneshot::Receiver<T>)
+where
+    T: Send + 'static,
+    F1: FnMut(&T) -> Option<String> + Send + 'static,
+    F2: FnMut(&T) -> Option<String> + Send + 'static,
+{
     let (inner_tx, inner_rx) = inner;
     let type_name = std::any::type_name::<T>();
 
@@ -218,6 +299,9 @@ pub(crate) fn wrap_oneshot<T: Send + 'static>(
                 // Message received from inner
                 match msg {
                     Ok(msg) => {
+                        if let Some(log_msg) = log_on_recv(&msg) {
+                            // eprintln!("[{}] RECV: {}", channel_id, log_msg);
+                        }
                         if inner_tx_proxy.send(msg).is_ok() {
                             let _ = stats_tx_recv.send(StatsEvent::MessageReceived { id: channel_id });
                             message_received = true;
@@ -247,6 +331,9 @@ pub(crate) fn wrap_oneshot<T: Send + 'static>(
             msg = outer_rx_proxy => {
                 match msg {
                     Ok(msg) => {
+                        if let Some(log_msg) = log_on_send(&msg) {
+                            // eprintln!("[{}] SEND: {}", channel_id, log_msg);
+                        }
                         if inner_tx.send(msg).is_ok() {
                             let _ = stats_tx_send.send(StatsEvent::MessageSent { id: channel_id });
                             let _ = stats_tx_send.send(StatsEvent::Notified { id: channel_id });
@@ -269,6 +356,30 @@ pub(crate) fn wrap_oneshot<T: Send + 'static>(
     });
 
     (outer_tx, outer_rx)
+}
+
+/// Wrap a oneshot channel with proxy ends. Returns (outer_tx, outer_rx).
+pub(crate) fn wrap_oneshot<T: Send + 'static>(
+    inner: (oneshot::Sender<T>, oneshot::Receiver<T>),
+    channel_id: &'static str,
+    label: Option<&'static str>,
+) -> (oneshot::Sender<T>, oneshot::Receiver<T>) {
+    wrap_oneshot_impl(inner, channel_id, label, |_| None, |_| None)
+}
+
+/// Wrap a oneshot Tokio channel with logging enabled. Returns (outer_tx, outer_rx).
+pub(crate) fn wrap_oneshot_log<T: Send + std::fmt::Debug + 'static>(
+    inner: (oneshot::Sender<T>, oneshot::Receiver<T>),
+    channel_id: &'static str,
+    label: Option<&'static str>,
+) -> (oneshot::Sender<T>, oneshot::Receiver<T>) {
+    wrap_oneshot_impl(
+        inner,
+        channel_id,
+        label,
+        |msg| Some(format!("{:?}", msg)),
+        |msg| Some(format!("{:?}", msg)),
+    )
 }
 
 use crate::Instrument;
@@ -306,5 +417,47 @@ impl<T: Send + 'static> Instrument for (oneshot::Sender<T>, oneshot::Receiver<T>
         _capacity: Option<usize>,
     ) -> Self::Output {
         wrap_oneshot(self, channel_id, label)
+    }
+}
+
+use crate::InstrumentLog;
+
+impl<T: Send + std::fmt::Debug + 'static> InstrumentLog for (Sender<T>, Receiver<T>) {
+    type Output = (Sender<T>, Receiver<T>);
+    fn instrument_log(
+        self,
+        channel_id: &'static str,
+        label: Option<&'static str>,
+        _capacity: Option<usize>,
+    ) -> Self::Output {
+        wrap_channel_log(self, channel_id, label)
+    }
+}
+
+impl<T: Send + std::fmt::Debug + 'static> InstrumentLog
+    for (UnboundedSender<T>, UnboundedReceiver<T>)
+{
+    type Output = (UnboundedSender<T>, UnboundedReceiver<T>);
+    fn instrument_log(
+        self,
+        channel_id: &'static str,
+        label: Option<&'static str>,
+        _capacity: Option<usize>,
+    ) -> Self::Output {
+        wrap_unbounded_log(self, channel_id, label)
+    }
+}
+
+impl<T: Send + std::fmt::Debug + 'static> InstrumentLog
+    for (oneshot::Sender<T>, oneshot::Receiver<T>)
+{
+    type Output = (oneshot::Sender<T>, oneshot::Receiver<T>);
+    fn instrument_log(
+        self,
+        channel_id: &'static str,
+        label: Option<&'static str>,
+        _capacity: Option<usize>,
+    ) -> Self::Output {
+        wrap_oneshot_log(self, channel_id, label)
     }
 }
