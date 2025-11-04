@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2025-11-04
+
+### 🚀 Features
+
+- Enable optional logging
+- Store channel logs and expose in HTTP
+- Display messages logs
+
+### 🚜 Refactor
+
+- Unify logging fn
+
+### ⚙️ Miscellaneous Tasks
+
+- Release 0.2.1
+
 ## [0.2.0] - 2025-11-03
 
 ### 🚀 Features
