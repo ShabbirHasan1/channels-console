@@ -6,12 +6,11 @@ use clap::Parser;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use eyre::Result;
 use ratatui::{
-    buffer::Buffer,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     symbols::border,
-    text::Line,
-    widgets::{Block, Cell, Row, Table, Widget},
+    text::{Line, Text},
+    widgets::{Block, Cell, HighlightSpacing, Row, Table, TableState},
     DefaultTerminal, Frame,
 };
 use std::io;
@@ -37,7 +36,7 @@ pub struct App {
     last_successful_fetch: Option<Instant>,
     metrics_port: u16,
     last_render_duration: Duration,
-    selected_index: usize,
+    table_state: TableState,
     show_logs: bool,
     logs: Option<CachedLogs>,
     paused: bool,
@@ -59,7 +58,7 @@ impl ConsoleArgs {
             last_successful_fetch: None,
             metrics_port: self.metrics_port,
             last_render_duration: Duration::from_millis(0),
-            selected_index: 0,
+            table_state: TableState::default().with_selected(0),
             show_logs: false,
             logs: None,
             paused: false,
@@ -156,8 +155,10 @@ impl App {
                 self.error = None;
                 self.last_successful_fetch = Some(Instant::now());
 
-                if self.selected_index >= self.stats.len() && !self.stats.is_empty() {
-                    self.selected_index = self.stats.len() - 1;
+                if let Some(selected) = self.table_state.selected() {
+                    if selected >= self.stats.len() && !self.stats.is_empty() {
+                        self.table_state.select(Some(self.stats.len() - 1));
+                    }
                 }
 
                 if self.show_logs {
@@ -171,8 +172,8 @@ impl App {
         self.last_refresh = Instant::now();
     }
 
-    fn draw(&self, frame: &mut Frame) {
-        frame.render_widget(self, frame.area());
+    fn draw(&mut self, frame: &mut Frame) {
+        self.render_ui(frame);
     }
 
     fn handle_events(&mut self) -> io::Result<()> {
@@ -199,7 +200,11 @@ impl App {
 
     fn select_previous(&mut self) {
         if !self.stats.is_empty() {
-            self.selected_index = self.selected_index.saturating_sub(1);
+            let i = match self.table_state.selected() {
+                Some(i) => i.saturating_sub(1),
+                None => 0,
+            };
+            self.table_state.select(Some(i));
 
             if self.paused && self.show_logs {
                 self.logs = None;
@@ -211,7 +216,11 @@ impl App {
 
     fn select_next(&mut self) {
         if !self.stats.is_empty() {
-            self.selected_index = (self.selected_index + 1).min(self.stats.len() - 1);
+            let i = match self.table_state.selected() {
+                Some(i) => (i + 1).min(self.stats.len() - 1),
+                None => 0,
+            };
+            self.table_state.select(Some(i));
 
             if self.paused && self.show_logs {
                 self.logs = None;
@@ -222,7 +231,13 @@ impl App {
     }
 
     fn toggle_logs(&mut self) {
-        if !self.stats.is_empty() && self.selected_index < self.stats.len() {
+        let has_valid_selection = self
+            .table_state
+            .selected()
+            .map(|i| i < self.stats.len())
+            .unwrap_or(false);
+
+        if !self.stats.is_empty() && has_valid_selection {
             if self.show_logs {
                 self.hide_logs();
             } else {
@@ -248,16 +263,18 @@ impl App {
 
         self.logs = None;
 
-        if !self.stats.is_empty() && self.selected_index < self.stats.len() {
-            let channel_id = &self.stats[self.selected_index].id;
-            if let Ok(logs) = fetch_logs(&self.agent, self.metrics_port, channel_id) {
-                let received_map: std::collections::HashMap<u64, LogEntry> = logs
-                    .received_logs
-                    .iter()
-                    .map(|entry| (entry.index, entry.clone()))
-                    .collect();
+        if let Some(selected) = self.table_state.selected() {
+            if !self.stats.is_empty() && selected < self.stats.len() {
+                let channel_id = &self.stats[selected].id;
+                if let Ok(logs) = fetch_logs(&self.agent, self.metrics_port, channel_id) {
+                    let received_map: std::collections::HashMap<u64, LogEntry> = logs
+                        .received_logs
+                        .iter()
+                        .map(|entry| (entry.index, entry.clone()))
+                        .collect();
 
-                self.logs = Some(CachedLogs { logs, received_map });
+                    self.logs = Some(CachedLogs { logs, received_map });
+                }
             }
         }
     }
@@ -271,8 +288,9 @@ impl App {
     }
 }
 
-impl Widget for &App {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+impl App {
+    fn render_ui(&mut self, frame: &mut Frame) {
+        let area = frame.area();
         let title = Line::from(" Channels Console ".bold());
 
         let refresh_status = if self.paused {
@@ -356,9 +374,10 @@ impl Widget for &App {
                     .centered(),
                 ];
 
-                ratatui::widgets::Paragraph::new(error_text)
-                    .block(block)
-                    .render(area, buf);
+                frame.render_widget(
+                    ratatui::widgets::Paragraph::new(error_text).block(block),
+                    area,
+                );
                 return;
             }
         }
@@ -374,9 +393,10 @@ impl Widget for &App {
                     .centered(),
             ];
 
-            ratatui::widgets::Paragraph::new(empty_text)
-                .block(block)
-                .render(area, buf);
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(empty_text).block(block),
+                area,
+            );
             return;
         }
 
@@ -415,8 +435,7 @@ impl Widget for &App {
         let rows: Vec<Row> = self
             .stats
             .iter()
-            .enumerate()
-            .map(|(idx, stat)| {
+            .map(|stat| {
                 let (state_text, state_style) = match stat.state {
                     ChannelState::Active => {
                         (stat.state.to_string(), Style::default().fg(Color::Green))
@@ -432,20 +451,8 @@ impl Widget for &App {
                     }
                 };
 
-                // Add selection indicator for NO_COLOR support
-                let selection_prefix = if idx == self.selected_index {
-                    "> "
-                } else {
-                    "  "
-                };
-                let channel_label = format!(
-                    "{}{}",
-                    selection_prefix,
-                    truncate_left(&stat.label, channel_width.saturating_sub(2))
-                );
-
-                let mut row = Row::new(vec![
-                    Cell::from(channel_label),
+                Row::new(vec![
+                    Cell::from(truncate_left(&stat.label, channel_width)),
                     Cell::from(stat.channel_type.to_string()),
                     Cell::from(state_text).style(state_style),
                     Cell::from(stat.sent_count.to_string()),
@@ -454,13 +461,7 @@ impl Widget for &App {
                     Cell::from(stat.queued.to_string()),
                     Cell::from(format_bytes(stat.queued_bytes)),
                     usage_bar(stat.queued, &stat.channel_type, 10),
-                ]);
-
-                if idx == self.selected_index {
-                    row = row.style(Style::default().bg(Color::DarkGray));
-                }
-
-                row
+                ])
             })
             .collect();
 
@@ -476,25 +477,34 @@ impl Widget for &App {
             Constraint::Percentage(14), // Queue
         ];
 
+        let selected_row_style = Style::default()
+            .add_modifier(Modifier::REVERSED)
+            .bg(Color::DarkGray);
+
         let table = Table::new(rows, widths)
             .header(header)
             .block(block)
-            .column_spacing(1);
+            .column_spacing(1)
+            .row_highlight_style(selected_row_style)
+            .highlight_symbol(Text::from(">"))
+            .highlight_spacing(HighlightSpacing::Always);
 
-        Widget::render(table, table_area, buf);
+        frame.render_stateful_widget(table, table_area, &mut self.table_state);
 
         // Render logs panel if visible
         if let Some(logs_area) = logs_area {
-            let channel_label = if self.selected_index < self.stats.len() {
-                let stat = &self.stats[self.selected_index];
-                if stat.label.is_empty() {
-                    stat.id.clone()
-                } else {
-                    stat.label.clone()
-                }
-            } else {
-                "Unknown".to_string()
-            };
+            let channel_label = self
+                .table_state
+                .selected()
+                .and_then(|i| self.stats.get(i))
+                .map(|stat| {
+                    if stat.label.is_empty() {
+                        stat.id.clone()
+                    } else {
+                        stat.label.clone()
+                    }
+                })
+                .unwrap_or_else(|| "Unknown".to_string());
 
             if let Some(ref cached_logs) = self.logs {
                 let has_missing_log = cached_logs
@@ -507,7 +517,7 @@ impl Widget for &App {
                 } else {
                     channel_label
                 };
-                render_logs_panel(cached_logs, &display_label, logs_area, buf);
+                render_logs_panel(cached_logs, &display_label, logs_area, frame);
             } else {
                 let message = if self.paused {
                     "(refresh paused)"
@@ -516,7 +526,7 @@ impl Widget for &App {
                 } else {
                     "(no data)"
                 };
-                render_logs_placeholder(&channel_label, message, logs_area, buf);
+                render_logs_placeholder(&channel_label, message, logs_area, frame);
             }
         }
     }
@@ -543,30 +553,32 @@ fn truncate_message(msg: &str, max_len: usize) -> String {
     }
 }
 
-fn render_logs_placeholder(channel_label: &str, message: &str, area: Rect, buf: &mut Buffer) {
+fn render_logs_placeholder(channel_label: &str, message: &str, area: Rect, frame: &mut Frame) {
     let block = Block::bordered()
         .title(format!(" {} ", channel_label))
         .border_set(border::THICK);
 
     let inner_area = block.inner(area);
-    block.render(area, buf);
+    frame.render_widget(block, area);
 
     let message_width = message.len() as u16;
     let x = inner_area.x + (inner_area.width.saturating_sub(message_width)) / 2;
     let y = inner_area.y + inner_area.height / 2;
 
     if x < inner_area.x + inner_area.width && y < inner_area.y + inner_area.height {
-        buf.set_string(x, y, message, Style::default().fg(Color::DarkGray));
+        frame
+            .buffer_mut()
+            .set_string(x, y, message, Style::default().fg(Color::DarkGray));
     }
 }
 
-fn render_logs_panel(cached_logs: &CachedLogs, channel_label: &str, area: Rect, buf: &mut Buffer) {
+fn render_logs_panel(cached_logs: &CachedLogs, channel_label: &str, area: Rect, frame: &mut Frame) {
     let block = Block::bordered()
         .title(format!(" {} ", channel_label))
         .border_set(border::THICK);
 
     let inner_area = block.inner(area);
-    block.render(area, buf);
+    frame.render_widget(block, area);
 
     let received_map = &cached_logs.received_map;
 
@@ -626,5 +638,5 @@ fn render_logs_panel(cached_logs: &CachedLogs, channel_label: &str, area: Rect, 
         .header(header)
         .row_highlight_style(Style::default().fg(Color::Yellow));
 
-    Widget::render(table, inner_area, buf);
+    frame.render_widget(table, inner_area);
 }
