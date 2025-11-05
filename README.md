@@ -1,4 +1,4 @@
-# Real-time monitoring, metrics and logs for Rust channels
+# channels-console 
 [![Latest Version](https://img.shields.io/crates/v/channels-console.svg)](https://crates.io/crates/channels-console) [![GH Actions](https://github.com/pawurb/channels-console/actions/workflows/ci.yml/badge.svg)](https://github.com/pawurb/channels-console/actions)
 
 ![Console TUI Example](channels-console-tui2.gif)
