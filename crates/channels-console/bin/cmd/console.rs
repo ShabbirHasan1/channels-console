@@ -408,7 +408,7 @@ impl App {
         };
 
         let available_width = table_area.width.saturating_sub(10);
-        let channel_width = ((available_width as f32 * 0.22) as usize).max(15);
+        let channel_width = ((available_width as f32 * 0.22) as usize).max(36);
 
         let header_style = Style::default()
             .fg(Color::Yellow)
@@ -419,11 +419,9 @@ impl App {
             Cell::from("Type"),
             Cell::from("State"),
             Cell::from("Sent"),
-            Cell::from("Mem"),
             Cell::from("Received"),
-            Cell::from("Queued"),
-            Cell::from("Mem"),
             Cell::from("Queue"),
+            Cell::from("Mem"),
         ])
         .style(header_style)
         .height(1);
@@ -447,30 +445,31 @@ impl App {
                     }
                 };
 
+                let mem_cell = match stat.channel_type {
+                    ChannelType::Unbounded => Cell::from("N/A"),
+                    _ => Cell::from(format_bytes(stat.queued_bytes)),
+                };
+
                 Row::new(vec![
                     Cell::from(truncate_left(&stat.label, channel_width)),
                     Cell::from(stat.channel_type.to_string()),
                     Cell::from(state_text).style(state_style),
                     Cell::from(stat.sent_count.to_string()),
-                    Cell::from(format_bytes(stat.total_bytes)),
                     Cell::from(stat.received_count.to_string()),
-                    Cell::from(stat.queued.to_string()),
-                    Cell::from(format_bytes(stat.queued_bytes)),
                     usage_bar(stat.queued, &stat.channel_type, 8),
+                    mem_cell,
                 ])
             })
             .collect();
 
         let widths = [
-            Constraint::Percentage(24), // Channel
-            Constraint::Percentage(12), // Type
-            Constraint::Percentage(9),  // State
-            Constraint::Percentage(7),  // Sent
-            Constraint::Percentage(9),  // Mem
-            Constraint::Percentage(9),  // Received
-            Constraint::Percentage(7),  // Queued
-            Constraint::Percentage(9),  // Mem
-            Constraint::Percentage(14), // Queue
+            Constraint::Percentage(30), // Channel
+            Constraint::Percentage(14), // Type
+            Constraint::Percentage(10), // State
+            Constraint::Percentage(9),  // Sent
+            Constraint::Percentage(11), // Received
+            Constraint::Percentage(16), // Queue
+            Constraint::Percentage(10), // Mem
         ];
 
         let selected_row_style = Style::default()
