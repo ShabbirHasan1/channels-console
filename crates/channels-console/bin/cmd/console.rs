@@ -1,4 +1,3 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use channels_console::{
     format_bytes, ChannelLogs, ChannelState, ChannelType, LogEntry, SerializableChannelStats,
 };
@@ -79,9 +78,8 @@ fn fetch_metrics(agent: &ureq::Agent, port: u16) -> Result<Vec<SerializableChann
     Ok(stats)
 }
 
-fn fetch_logs(agent: &ureq::Agent, port: u16, channel_id: &str) -> Result<ChannelLogs> {
-    let encoded_id = URL_SAFE_NO_PAD.encode(channel_id.as_bytes());
-    let url = format!("http://127.0.0.1:{}/logs/{}", port, encoded_id);
+fn fetch_logs(agent: &ureq::Agent, port: u16, channel_id: u64) -> Result<ChannelLogs> {
+    let url = format!("http://127.0.0.1:{}/logs/{}", port, channel_id);
     let response = agent.get(&url).call()?;
     let logs: ChannelLogs = response.into_json()?;
     Ok(logs)
@@ -261,7 +259,7 @@ impl App {
 
         if let Some(selected) = self.table_state.selected() {
             if !self.stats.is_empty() && selected < self.stats.len() {
-                let channel_id = &self.stats[selected].id;
+                let channel_id = self.stats[selected].id;
                 if let Ok(logs) = fetch_logs(&self.agent, self.metrics_port, channel_id) {
                     let received_map: std::collections::HashMap<u64, LogEntry> = logs
                         .received_logs
@@ -494,7 +492,7 @@ impl App {
                 .and_then(|i| self.stats.get(i))
                 .map(|stat| {
                     if stat.label.is_empty() {
-                        stat.id.clone()
+                        stat.id.to_string()
                     } else {
                         stat.label.clone()
                     }

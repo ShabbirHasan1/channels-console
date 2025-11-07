@@ -101,7 +101,6 @@ pub mod tests {
 
     #[test]
     fn test_data_endpoints() {
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
         use channels_console::SerializableChannelStats;
         use std::{process::Command, thread::sleep, time::Duration};
 
@@ -158,9 +157,7 @@ pub mod tests {
             serde_json::from_str(&json_text).expect("Failed to parse metrics JSON");
 
         if let Some(first_channel) = metrics.first() {
-            let encoded_id = URL_SAFE_NO_PAD.encode(first_channel.id.as_bytes());
-
-            let logs_url = format!("http://127.0.0.1:6770/logs/{}", encoded_id);
+            let logs_url = format!("http://127.0.0.1:6770/logs/{}", first_channel.id);
             let response = ureq::get(&logs_url)
                 .call()
                 .expect("Failed to call /logs/:id endpoint");
@@ -174,5 +171,45 @@ pub mod tests {
 
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    #[test]
+    fn test_iter_output() {
+        let output = Command::new("cargo")
+            .args([
+                "run",
+                "-p",
+                "channels-console-std-test",
+                "--example",
+                "iter_std",
+                "--features",
+                "channels-console",
+            ])
+            .output()
+            .expect("Failed to execute command");
+
+        assert!(
+            output.status.success(),
+            "Command failed with status: {}",
+            output.status
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        let all_expected = [
+            "examples/iter_std.rs:17",
+            "examples/iter_std.rs:17-2",
+            "examples/iter_std.rs:17-3",
+            "examples/iter_std.rs:33",
+            "examples/iter_std.rs:33-2",
+            "examples/iter_std.rs:33-3",
+        ];
+
+        for expected in all_expected {
+            assert!(
+                stdout.contains(expected),
+                "Expected:\n{expected}\n\nGot:\n{stdout}",
+            );
+        }
     }
 }

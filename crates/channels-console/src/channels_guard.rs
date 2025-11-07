@@ -140,13 +140,18 @@ impl Drop for ChannelsGuard {
 
                 let mut sorted_stats: Vec<_> = stats.into_iter().collect();
                 sorted_stats.sort_by(|a, b| {
-                    let la = resolve_label(a.1.id, a.1.label);
-                    let lb = resolve_label(b.1.id, b.1.label);
-                    la.cmp(&lb)
+                    // Sort by source first, then by iter number
+                    a.1.source
+                        .cmp(b.1.source)
+                        .then_with(|| a.1.iter.cmp(&b.1.iter))
                 });
 
                 for (_key, channel_stats) in sorted_stats {
-                    let label = resolve_label(channel_stats.id, channel_stats.label);
+                    let label = resolve_label(
+                        channel_stats.source,
+                        channel_stats.label,
+                        channel_stats.iter,
+                    );
                     table.add_row(Row::new(vec![
                         Cell::new(&label),
                         Cell::new(&channel_stats.channel_type.to_string()),

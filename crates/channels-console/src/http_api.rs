@@ -1,5 +1,4 @@
 use crate::{get_channel_logs, get_serializable_stats};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::Serialize;
 use std::fmt::Display;
 use tiny_http::{Header, Request, Response, Server};
@@ -28,13 +27,18 @@ fn handle_request(request: Request) {
             respond_json(request, &stats);
         }
         _ => {
-            if let Some(encoded_id) = path.strip_prefix("/logs/") {
-                match decode_channel_id(encoded_id) {
-                    Ok(channel_id) => match get_channel_logs(&channel_id) {
-                        Some(logs) => respond_json(request, &logs),
-                        None => respond_error(request, 404, "Channel not found"),
-                    },
-                    Err(msg) => respond_error(request, 400, msg),
+            if let Some(id_str) = path.strip_prefix("/logs/") {
+                match id_str.parse::<u64>() {
+                    Ok(channel_id) => {
+                        let channel_id_str = channel_id.to_string();
+                        match get_channel_logs(&channel_id_str) {
+                            Some(logs) => respond_json(request, &logs),
+                            None => respond_error(request, 404, "Channel not found"),
+                        }
+                    }
+                    Err(_) => {
+                        respond_error(request, 400, "Invalid channel ID: must be a valid number")
+                    }
                 }
             } else {
                 respond_error(request, 404, "Not found");
@@ -66,11 +70,4 @@ fn respond_internal_error(request: Request, e: impl Display) {
     let _ = request.respond(
         Response::from_string(format!("Internal server error: {}", e)).with_status_code(500),
     );
-}
-
-fn decode_channel_id(encoded: &str) -> Result<String, &'static str> {
-    let bytes = URL_SAFE_NO_PAD
-        .decode(encoded)
-        .map_err(|_| "Invalid base64 encoding")?;
-    String::from_utf8(bytes).map_err(|_| "Invalid channel ID encoding")
 }

@@ -1,12 +1,13 @@
 use std::mem;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 
-use crate::{init_stats_state, ChannelType, StatsEvent};
+use crate::{init_stats_state, ChannelType, StatsEvent, CHANNEL_ID_COUNTER};
 
 /// Internal implementation for wrapping bounded std channels with optional logging.
 fn wrap_sync_channel_impl<T, F>(
     inner: (SyncSender<T>, Receiver<T>),
-    channel_id: &'static str,
+    source: &'static str,
     label: Option<&'static str>,
     capacity: usize,
     mut log_on_send: F,
@@ -23,8 +24,12 @@ where
 
     let (stats_tx, _) = init_stats_state();
 
+    // Generate unique ID for this channel
+    let id = CHANNEL_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+
     let _ = stats_tx.send(StatsEvent::Created {
-        id: channel_id,
+        id,
+        source,
         display_label: label,
         channel_type: ChannelType::Bounded(capacity),
         type_name,
@@ -64,7 +69,7 @@ where
                         break;
                     }
                     let _ = stats_tx_send.send(StatsEvent::MessageSent {
-                        id: channel_id,
+                        id,
                         log,
                         timestamp: std::time::Instant::now(),
                     });
@@ -80,7 +85,7 @@ where
             }
         }
         // Channel is closed
-        let _ = stats_tx_send.send(StatsEvent::Closed { id: channel_id });
+        let _ = stats_tx_send.send(StatsEvent::Closed { id });
     });
 
     // Forward inner -> outer (proxy the recv path)
@@ -92,12 +97,12 @@ where
                 break;
             }
             let _ = stats_tx_recv.send(StatsEvent::MessageReceived {
-                id: channel_id,
+                id,
                 timestamp: std::time::Instant::now(),
             });
         }
         // Channel is closed (either inner sender dropped or outer receiver closed)
-        let _ = stats_tx_recv.send(StatsEvent::Closed { id: channel_id });
+        let _ = stats_tx_recv.send(StatsEvent::Closed { id });
     });
 
     (outer_tx, outer_rx)
@@ -107,21 +112,21 @@ where
 /// All messages pass through the two forwarders running in separate threads.
 pub(crate) fn wrap_sync_channel<T: Send + 'static>(
     inner: (SyncSender<T>, Receiver<T>),
-    channel_id: &'static str,
+    source: &'static str,
     label: Option<&'static str>,
     capacity: usize,
 ) -> (SyncSender<T>, Receiver<T>) {
-    wrap_sync_channel_impl(inner, channel_id, label, capacity, |_| None)
+    wrap_sync_channel_impl(inner, source, label, capacity, |_| None)
 }
 
 /// Wrap a bounded std channel with logging enabled. Returns (outer_tx, outer_rx).
 pub(crate) fn wrap_sync_channel_log<T: Send + std::fmt::Debug + 'static>(
     inner: (SyncSender<T>, Receiver<T>),
-    channel_id: &'static str,
+    source: &'static str,
     label: Option<&'static str>,
     capacity: usize,
 ) -> (SyncSender<T>, Receiver<T>) {
-    wrap_sync_channel_impl(inner, channel_id, label, capacity, |msg| {
+    wrap_sync_channel_impl(inner, source, label, capacity, |msg| {
         Some(format!("{:?}", msg))
     })
 }
@@ -129,7 +134,7 @@ pub(crate) fn wrap_sync_channel_log<T: Send + std::fmt::Debug + 'static>(
 /// Internal implementation for wrapping unbounded std channels with optional logging.
 fn wrap_channel_impl<T, F>(
     inner: (Sender<T>, Receiver<T>),
-    channel_id: &'static str,
+    source: &'static str,
     label: Option<&'static str>,
     mut log_on_send: F,
 ) -> (Sender<T>, Receiver<T>)
@@ -145,8 +150,12 @@ where
 
     let (stats_tx, _) = init_stats_state();
 
+    // Generate unique ID for this channel
+    let id = CHANNEL_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+
     let _ = stats_tx.send(StatsEvent::Created {
-        id: channel_id,
+        id,
+        source,
         display_label: label,
         channel_type: ChannelType::Unbounded,
         type_name,
@@ -186,7 +195,7 @@ where
                         break;
                     }
                     let _ = stats_tx_send.send(StatsEvent::MessageSent {
-                        id: channel_id,
+                        id,
                         log,
                         timestamp: std::time::Instant::now(),
                     });
@@ -202,7 +211,7 @@ where
             }
         }
         // Channel is closed
-        let _ = stats_tx_send.send(StatsEvent::Closed { id: channel_id });
+        let _ = stats_tx_send.send(StatsEvent::Closed { id });
     });
 
     // Forward inner -> outer (proxy the recv path)
@@ -214,12 +223,12 @@ where
                 break;
             }
             let _ = stats_tx_recv.send(StatsEvent::MessageReceived {
-                id: channel_id,
+                id,
                 timestamp: std::time::Instant::now(),
             });
         }
         // Channel is closed (either inner sender dropped or outer receiver closed)
-        let _ = stats_tx_recv.send(StatsEvent::Closed { id: channel_id });
+        let _ = stats_tx_recv.send(StatsEvent::Closed { id });
     });
 
     (outer_tx, outer_rx)
@@ -228,19 +237,19 @@ where
 /// Wrap an unbounded std channel with proxy ends. Returns (outer_tx, outer_rx).
 pub(crate) fn wrap_channel<T: Send + 'static>(
     inner: (Sender<T>, Receiver<T>),
-    channel_id: &'static str,
+    source: &'static str,
     label: Option<&'static str>,
 ) -> (Sender<T>, Receiver<T>) {
-    wrap_channel_impl(inner, channel_id, label, |_| None)
+    wrap_channel_impl(inner, source, label, |_| None)
 }
 
 /// Wrap an unbounded std channel with logging enabled. Returns (outer_tx, outer_rx).
 pub(crate) fn wrap_channel_log<T: Send + std::fmt::Debug + 'static>(
     inner: (Sender<T>, Receiver<T>),
-    channel_id: &'static str,
+    source: &'static str,
     label: Option<&'static str>,
 ) -> (Sender<T>, Receiver<T>) {
-    wrap_channel_impl(inner, channel_id, label, |msg| Some(format!("{:?}", msg)))
+    wrap_channel_impl(inner, source, label, |msg| Some(format!("{:?}", msg)))
 }
 
 use crate::Instrument;
@@ -249,11 +258,11 @@ impl<T: Send + 'static> Instrument for (std::sync::mpsc::Sender<T>, std::sync::m
     type Output = (std::sync::mpsc::Sender<T>, std::sync::mpsc::Receiver<T>);
     fn instrument(
         self,
-        channel_id: &'static str,
+        source: &'static str,
         label: Option<&'static str>,
         _capacity: Option<usize>,
     ) -> Self::Output {
-        wrap_channel(self, channel_id, label)
+        wrap_channel(self, source, label)
     }
 }
 
@@ -263,14 +272,14 @@ impl<T: Send + 'static> Instrument
     type Output = (std::sync::mpsc::SyncSender<T>, std::sync::mpsc::Receiver<T>);
     fn instrument(
         self,
-        channel_id: &'static str,
+        source: &'static str,
         label: Option<&'static str>,
         capacity: Option<usize>,
     ) -> Self::Output {
         if capacity.is_none() {
             panic!("Capacity is required for bounded std channels, because they don't expose their capacity in a public API");
         }
-        wrap_sync_channel(self, channel_id, label, capacity.unwrap())
+        wrap_sync_channel(self, source, label, capacity.unwrap())
     }
 }
 
@@ -282,11 +291,11 @@ impl<T: Send + std::fmt::Debug + 'static> InstrumentLog
     type Output = (std::sync::mpsc::Sender<T>, std::sync::mpsc::Receiver<T>);
     fn instrument_log(
         self,
-        channel_id: &'static str,
+        source: &'static str,
         label: Option<&'static str>,
         _capacity: Option<usize>,
     ) -> Self::Output {
-        wrap_channel_log(self, channel_id, label)
+        wrap_channel_log(self, source, label)
     }
 }
 
@@ -296,13 +305,13 @@ impl<T: Send + std::fmt::Debug + 'static> InstrumentLog
     type Output = (std::sync::mpsc::SyncSender<T>, std::sync::mpsc::Receiver<T>);
     fn instrument_log(
         self,
-        channel_id: &'static str,
+        source: &'static str,
         label: Option<&'static str>,
         capacity: Option<usize>,
     ) -> Self::Output {
         if capacity.is_none() {
             panic!("Capacity is required for bounded std channels, because they don't expose their capacity in a public API");
         }
-        wrap_sync_channel_log(self, channel_id, label, capacity.unwrap())
+        wrap_sync_channel_log(self, source, label, capacity.unwrap())
     }
 }

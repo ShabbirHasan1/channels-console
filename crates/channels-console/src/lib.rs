@@ -1,6 +1,7 @@
 use crossbeam_channel::{unbounded, Sender as CbSender};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 
@@ -147,7 +148,8 @@ impl<'de> Deserialize<'de> for ChannelState {
 /// Statistics for a single instrumented channel.
 #[derive(Debug, Clone)]
 pub(crate) struct ChannelStats {
-    pub(crate) id: &'static str,
+    pub(crate) id: u64,
+    pub(crate) source: &'static str,
     pub(crate) label: Option<&'static str>,
     pub(crate) channel_type: ChannelType,
     pub(crate) state: ChannelState,
@@ -157,6 +159,7 @@ pub(crate) struct ChannelStats {
     pub(crate) type_size: usize,
     pub(crate) sent_logs: VecDeque<LogEntry>,
     pub(crate) received_logs: VecDeque<LogEntry>,
+    pub(crate) iter: u32,
 }
 
 impl ChannelStats {
@@ -178,7 +181,8 @@ impl ChannelStats {
 /// Serializable version of channel statistics for JSON responses.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableChannelStats {
-    pub id: String,
+    pub id: u64,
+    pub source: String,
     pub label: String,
     pub channel_type: ChannelType,
     pub state: ChannelState,
@@ -189,13 +193,15 @@ pub struct SerializableChannelStats {
     pub type_size: usize,
     pub total_bytes: u64,
     pub queued_bytes: u64,
+    pub iter: u32,
 }
 
 impl From<&ChannelStats> for SerializableChannelStats {
     fn from(stats: &ChannelStats) -> Self {
-        let label = resolve_label(stats.id, stats.label);
+        let label = resolve_label(stats.source, stats.label, stats.iter);
         Self {
-            id: stats.id.to_string(),
+            id: stats.id,
+            source: stats.source.to_string(),
             label,
             channel_type: stats.channel_type,
             state: stats.state,
@@ -206,20 +212,24 @@ impl From<&ChannelStats> for SerializableChannelStats {
             type_size: stats.type_size,
             total_bytes: stats.total_bytes(),
             queued_bytes: stats.queued_bytes(),
+            iter: stats.iter,
         }
     }
 }
 
 impl ChannelStats {
     fn new(
-        id: &'static str,
+        id: u64,
+        source: &'static str,
         label: Option<&'static str>,
         channel_type: ChannelType,
         type_name: &'static str,
         type_size: usize,
+        iter: u32,
     ) -> Self {
         Self {
             id,
+            source,
             label,
             channel_type,
             state: ChannelState::default(),
@@ -229,6 +239,7 @@ impl ChannelStats {
             type_size,
             sent_logs: VecDeque::new(),
             received_logs: VecDeque::new(),
+            iter,
         }
     }
 
@@ -256,39 +267,43 @@ impl ChannelStats {
 #[derive(Debug)]
 pub(crate) enum StatsEvent {
     Created {
-        id: &'static str,
+        id: u64,
+        source: &'static str,
         display_label: Option<&'static str>,
         channel_type: ChannelType,
         type_name: &'static str,
         type_size: usize,
     },
     MessageSent {
-        id: &'static str,
+        id: u64,
         log: Option<String>,
         timestamp: Instant,
     },
     MessageReceived {
-        id: &'static str,
+        id: u64,
         timestamp: Instant,
     },
     Closed {
-        id: &'static str,
+        id: u64,
     },
     #[allow(dead_code)]
     Notified {
-        id: &'static str,
+        id: u64,
     },
 }
 
 type StatsState = (
     CbSender<StatsEvent>,
-    Arc<RwLock<HashMap<&'static str, ChannelStats>>>,
+    Arc<RwLock<HashMap<u64, ChannelStats>>>,
 );
 
 /// Global state for statistics collection.
 static STATS_STATE: OnceLock<StatsState> = OnceLock::new();
 
 static START_TIME: OnceLock<Instant> = OnceLock::new();
+
+/// Global counter for assigning unique IDs to channels.
+pub(crate) static CHANNEL_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const DEFAULT_LOG_LIMIT: usize = 50;
 
@@ -306,7 +321,7 @@ fn init_stats_state() -> &'static StatsState {
         START_TIME.get_or_init(Instant::now);
 
         let (tx, rx) = unbounded::<StatsEvent>();
-        let stats_map = Arc::new(RwLock::new(HashMap::<&'static str, ChannelStats>::new()));
+        let stats_map = Arc::new(RwLock::new(HashMap::<u64, ChannelStats>::new()));
         let stats_map_clone = Arc::clone(&stats_map);
 
         std::thread::Builder::new()
@@ -316,25 +331,32 @@ fn init_stats_state() -> &'static StatsState {
                     let mut stats = stats_map_clone.write().unwrap();
                     match event {
                         StatsEvent::Created {
-                            id: key,
+                            id,
+                            source,
                             display_label,
                             channel_type,
                             type_name,
                             type_size,
                         } => {
+                            // Count existing channels with the same source location
+                            let iter =
+                                stats.values().filter(|cs| cs.source == source).count() as u32;
+
                             stats.insert(
-                                key,
+                                id,
                                 ChannelStats::new(
-                                    key,
+                                    id,
+                                    source,
                                     display_label,
                                     channel_type,
                                     type_name,
                                     type_size,
+                                    iter,
                                 ),
                             );
                         }
                         StatsEvent::MessageSent { id, log, timestamp } => {
-                            if let Some(channel_stats) = stats.get_mut(id) {
+                            if let Some(channel_stats) = stats.get_mut(&id) {
                                 channel_stats.sent_count += 1;
                                 channel_stats.update_state();
 
@@ -350,7 +372,7 @@ fn init_stats_state() -> &'static StatsState {
                             }
                         }
                         StatsEvent::MessageReceived { id, timestamp } => {
-                            if let Some(channel_stats) = stats.get_mut(id) {
+                            if let Some(channel_stats) = stats.get_mut(&id) {
                                 channel_stats.received_count += 1;
                                 channel_stats.update_state();
 
@@ -366,12 +388,12 @@ fn init_stats_state() -> &'static StatsState {
                             }
                         }
                         StatsEvent::Closed { id } => {
-                            if let Some(channel_stats) = stats.get_mut(id) {
+                            if let Some(channel_stats) = stats.get_mut(&id) {
                                 channel_stats.state = ChannelState::Closed;
                             }
                         }
                         StatsEvent::Notified { id } => {
-                            if let Some(channel_stats) = stats.get_mut(id) {
+                            if let Some(channel_stats) = stats.get_mut(&id) {
                                 channel_stats.state = ChannelState::Notified;
                             }
                         }
@@ -396,16 +418,21 @@ fn init_stats_state() -> &'static StatsState {
     })
 }
 
-fn resolve_label(id: &'static str, provided: Option<&'static str>) -> String {
-    if let Some(l) = provided {
-        return l.to_string();
-    }
-    if let Some(pos) = id.rfind(':') {
+fn resolve_label(id: &'static str, provided: Option<&'static str>, iter: u32) -> String {
+    let base_label = if let Some(l) = provided {
+        l.to_string()
+    } else if let Some(pos) = id.rfind(':') {
         let (path, line_part) = id.split_at(pos);
         let line = &line_part[1..];
         format!("{}:{}", extract_filename(path), line)
     } else {
         extract_filename(id)
+    };
+
+    if iter > 0 {
+        format!("{}-{}", base_label, iter + 1)
+    } else {
+        base_label
     }
 }
 
@@ -452,7 +479,7 @@ pub trait Instrument {
     type Output;
     fn instrument(
         self,
-        channel_id: &'static str,
+        source: &'static str,
         label: Option<&'static str>,
         capacity: Option<usize>,
     ) -> Self::Output;
@@ -466,7 +493,7 @@ pub trait InstrumentLog {
     type Output;
     fn instrument_log(
         self,
-        channel_id: &'static str,
+        source: &'static str,
         label: Option<&'static str>,
         capacity: Option<usize>,
     ) -> Self::Output;
@@ -648,7 +675,7 @@ macro_rules! instrument {
     }};
 }
 
-fn get_channel_stats() -> HashMap<&'static str, ChannelStats> {
+fn get_channel_stats() -> HashMap<u64, ChannelStats> {
     if let Some((_, stats_map)) = STATS_STATE.get() {
         stats_map.read().unwrap().clone()
     } else {
@@ -662,7 +689,8 @@ fn get_serializable_stats() -> Vec<SerializableChannelStats> {
         .map(SerializableChannelStats::from)
         .collect();
 
-    stats.sort_by(|a, b| a.id.cmp(&b.id));
+    // Sort by source first, then by iter number
+    stats.sort_by(|a, b| a.source.cmp(&b.source).then_with(|| a.iter.cmp(&b.iter)));
     stats
 }
 
@@ -675,8 +703,9 @@ pub struct ChannelLogs {
 }
 
 pub(crate) fn get_channel_logs(channel_id: &str) -> Option<ChannelLogs> {
+    let id = channel_id.parse::<u64>().ok()?;
     let stats = get_channel_stats();
-    stats.get(channel_id).map(|channel_stats| {
+    stats.get(&id).map(|channel_stats| {
         let mut sent_logs: Vec<LogEntry> = channel_stats.sent_logs.iter().cloned().collect();
 
         let mut received_logs: Vec<LogEntry> =

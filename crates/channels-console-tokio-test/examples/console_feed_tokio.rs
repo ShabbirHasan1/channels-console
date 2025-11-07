@@ -99,6 +99,27 @@ async fn main() {
         log = true
     );
 
+    println!("Creating 3 bounded iter channels...");
+    for i in 0..3 {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<u32>(5);
+
+        #[cfg(feature = "channels-console")]
+        let (tx, mut rx) = channels_console::instrument!((tx, rx), log = true);
+
+        tokio::spawn(async move {
+            for j in 0..50 {
+                let _ = tx.send(i * 10 + j).await;
+                sleep(Duration::from_millis(500)).await;
+            }
+        });
+
+        tokio::spawn(async move {
+            while let Some(_msg) = rx.recv().await {
+                sleep(Duration::from_millis(200)).await;
+            }
+        });
+    }
+
     // === Task 1: Fast data stream producer (10ms interval) ===
     tokio::spawn(async move {
         let messages = ["foo", "baz", "bar"];

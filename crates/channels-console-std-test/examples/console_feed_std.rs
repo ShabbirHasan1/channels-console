@@ -71,6 +71,27 @@ fn main() {
     let (tx_steady, rx_steady) =
         channels_console::instrument!((tx_steady, rx_steady), label = "steady-stream", log = true);
 
+    println!("Creating 3 bounded iter channels...");
+    for i in 0..3 {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<u32>(5);
+
+        #[cfg(feature = "channels-console")]
+        let (tx, rx) = channels_console::instrument!((tx, rx), capacity = 5);
+
+        thread::spawn(move || {
+            for j in 0..5 {
+                let _ = tx.send(i * 10 + j);
+                thread::sleep(Duration::from_millis(500));
+            }
+        });
+
+        thread::spawn(move || {
+            while let Ok(_msg) = rx.recv() {
+                thread::sleep(Duration::from_millis(200));
+            }
+        });
+    }
+
     // === Task 1: Fast data stream producer (10ms interval) ===
     thread::spawn(move || {
         let messages = ["foo", "baz", "bar"];

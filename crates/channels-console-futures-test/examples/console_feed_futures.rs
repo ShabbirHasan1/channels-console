@@ -104,6 +104,29 @@ fn main() {
             log = true
         );
 
+        println!("Creating 3 bounded iter channels...");
+        for i in 0..3 {
+            let (mut tx, mut rx) = futures_channel::mpsc::channel::<u32>(5);
+
+            #[cfg(feature = "channels-console")]
+            let (mut tx, mut rx) = channels_console::instrument!((tx, rx), capacity = 5);
+
+            smol::spawn(async move {
+                for j in 0..5 {
+                    let _ = tx.try_send(i * 10 + j);
+                    Timer::after(Duration::from_millis(500)).await;
+                }
+            })
+            .detach();
+
+            smol::spawn(async move {
+                while let Some(_msg) = rx.next().await {
+                    Timer::after(Duration::from_millis(200)).await;
+                }
+            })
+            .detach();
+        }
+
         // === Task 1: Fast data stream producer (10ms interval) ===
         smol::spawn(async move {
             let messages = ["foo", "baz", "bar"];
