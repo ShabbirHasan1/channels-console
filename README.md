@@ -1,12 +1,11 @@
 # channels-console 
 [![Latest Version](https://img.shields.io/crates/v/channels-console.svg)](https://crates.io/crates/channels-console) [![GH Actions](https://github.com/pawurb/channels-console/actions/workflows/ci.yml/badge.svg)](https://github.com/pawurb/channels-console/actions)
 
-![Console TUI Example](channels-console-tui2.gif)
+![Console TUI Example](channels-console-tui5.gif)
 
-A lightweight, easy-to-use tool for real-time visibility into your Rust channels. Track queue depth, processing delay, throughput, and memory usage. Instantly spot slow consumers, overloaded producers, or capacity issues.
+A lightweight, easy-to-use tool for real-time visibility into your Rust channels. Inspect live message contents and observe how channels interact to better understand data flow. Track queue depth, delay, throughput, and memory usage to spot channel-related bottlenecks.
 
 Supports [std::sync](https://doc.rust-lang.org/stable/std/sync/mpsc/index.html), [Tokio](https://github.com/tokio-rs/tokio) and [futures-rs](https://github.com/rust-lang/futures-rs) channels - with more on the way.
-
 ## Features
 
 - **Zero-cost when disabled** — fully gated by a feature flag
