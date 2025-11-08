@@ -65,3 +65,12 @@ pub(crate) fn truncate_message(msg: &str, max_len: usize) -> String {
         format!("{}...", truncated)
     }
 }
+
+/// Formats a timestamp in nanoseconds as MM:SS.mmm
+pub(crate) fn format_timestamp(timestamp_ns: u64) -> String {
+    let total_secs = timestamp_ns / 1_000_000_000;
+    let millis = (timestamp_ns % 1_000_000_000) / 1_000_000;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    format!("{:02}:{:02}.{:03}", minutes, seconds, millis)
+}

@@ -1,5 +1,5 @@
 use crate::cmd::console::state::CachedLogs;
-use crate::cmd::console::widgets::formatters::{format_delay, truncate_message};
+use crate::cmd::console::widgets::formatters::{format_delay, format_timestamp, truncate_message};
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
@@ -79,11 +79,7 @@ pub(crate) fn render_logs_panel(
         .sent_logs
         .iter()
         .map(|entry| {
-            let total_secs = entry.timestamp / 1_000_000_000;
-            let millis = (entry.timestamp % 1_000_000_000) / 1_000_000;
-            let minutes = (total_secs % 3600) / 60;
-            let seconds = total_secs % 60;
-            let timestamp = format!("{:02}:{:02}.{:03}", minutes, seconds, millis);
+            let timestamp = format_timestamp(entry.timestamp);
 
             let msg = entry.message.as_deref().unwrap_or("");
             let truncated_msg = truncate_message(msg, msg_width);

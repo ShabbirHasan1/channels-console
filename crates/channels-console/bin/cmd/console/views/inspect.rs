@@ -1,3 +1,4 @@
+use crate::cmd::console::widgets::formatters::format_timestamp;
 use channels_console::LogEntry;
 use ratatui::{
     layout::Rect,
@@ -30,7 +31,11 @@ pub(crate) fn render_inspect_popup(entry: &LogEntry, area: Rect, frame: &mut Fra
     frame.render_widget(Clear, popup_area);
 
     let block = Block::bordered()
-        .title(format!(" Log Message (Index: {}) ", entry.index))
+        .title(format!(
+            " Message (Index: {}) - {} ",
+            entry.index,
+            format_timestamp(entry.timestamp)
+        ))
         .border_set(border::DOUBLE);
 
     let inner_area = block.inner(popup_area);
