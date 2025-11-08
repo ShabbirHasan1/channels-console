@@ -416,6 +416,6 @@ impl App {
             &self.inspected_log,
         );
 
-        render_bottom_bar(frame, chunks[2], self.focus);
+        render_bottom_bar(frame, chunks[2], self.focus, self.last_render_duration);
     }
 }
