@@ -11,6 +11,7 @@ use ratatui::{
 };
 
 /// Renders the channels table with channel statistics
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_channels_panel(
     stats: &[SerializableChannelStats],
     area: Rect,
@@ -18,6 +19,8 @@ pub(crate) fn render_channels_panel(
     table_state: &mut TableState,
     show_logs: bool,
     focus: Focus,
+    channel_position: usize,
+    total_channels: usize,
 ) {
     let available_width = area.width.saturating_sub(10);
     let channel_width = ((available_width as f32 * 0.22) as usize).max(36);
@@ -92,7 +95,6 @@ pub(crate) fn render_channels_panel(
         .add_modifier(Modifier::REVERSED)
         .bg(Color::DarkGray);
 
-    // When logs are shown, create a separate block for the channels table
     let table_block = if show_logs {
         let border_set = if focus == Focus::Channels {
             border::THICK
@@ -100,6 +102,7 @@ pub(crate) fn render_channels_panel(
             border::PLAIN
         };
         Block::bordered()
+            .title(format!(" [{}/{}] ", channel_position, total_channels))
             .border_set(border_set)
             .style(if focus == Focus::Channels {
                 Style::default()
@@ -107,7 +110,9 @@ pub(crate) fn render_channels_panel(
                 Style::default().fg(Color::DarkGray)
             })
     } else {
-        Block::new()
+        Block::bordered()
+            .title(format!(" [{}/{}] ", channel_position, total_channels))
+            .border_set(border::THICK)
     };
 
     let table = Table::new(rows, widths)

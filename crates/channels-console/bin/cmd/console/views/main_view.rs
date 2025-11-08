@@ -68,7 +68,6 @@ pub fn render_main_view(
     }
 
     // Split the area if logs are being shown
-    // When only showing channels, use a border; when split view, no border
     let (table_area, logs_area) = if show_logs {
         let chunks = Layout::default()
             .direction(ratatui::layout::Direction::Horizontal)
@@ -76,21 +75,26 @@ pub fn render_main_view(
             .split(area);
         (chunks[0], Some(chunks[1]))
     } else {
-        // Single channel view - add border
-        let block = Block::bordered().border_set(border::THICK);
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        (inner, None)
+        (area, None)
     };
 
-    render_channels_panel(stats, table_area, frame, table_state, show_logs, focus);
+    let selected_index = table_state.selected().unwrap_or(0);
+    let channel_position = selected_index + 1; // 1-indexed
+    let total_channels = stats.len();
+
+    render_channels_panel(
+        stats,
+        table_area,
+        frame,
+        table_state,
+        show_logs,
+        focus,
+        channel_position,
+        total_channels,
+    );
 
     // Render logs panel if visible
     if let Some(logs_area) = logs_area {
-        let selected_index = table_state.selected().unwrap_or(0);
-        let channel_position = selected_index + 1; // 1-indexed
-        let total_channels = stats.len();
-
         let channel_label = table_state
             .selected()
             .and_then(|i| stats.get(i))
@@ -117,8 +121,6 @@ pub fn render_main_view(
             render_logs_panel(
                 cached_logs,
                 &display_label,
-                channel_position,
-                total_channels,
                 logs_area,
                 frame,
                 logs_table_state,
@@ -132,14 +134,7 @@ pub fn render_main_view(
             } else {
                 "(no data)"
             };
-            render_logs_placeholder(
-                &channel_label,
-                message,
-                channel_position,
-                total_channels,
-                logs_area,
-                frame,
-            );
+            render_logs_placeholder(&channel_label, message, logs_area, frame);
         }
     }
 

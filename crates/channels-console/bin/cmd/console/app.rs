@@ -98,13 +98,31 @@ impl App {
     }
 
     fn refresh_data(&mut self) {
+        let selected_channel_id = self
+            .table_state
+            .selected()
+            .and_then(|idx| self.stats.get(idx))
+            .map(|stat| stat.id);
+
         match fetch_metrics(&self.agent, self.metrics_port) {
             Ok(stats) => {
                 self.stats = stats;
                 self.error = None;
                 self.last_successful_fetch = Some(Instant::now());
 
-                if let Some(selected) = self.table_state.selected() {
+                // Try to restore selection to the same channel ID
+                if let Some(channel_id) = selected_channel_id {
+                    // Find the new index of the previously selected channel
+                    if let Some(new_idx) = self.stats.iter().position(|stat| stat.id == channel_id)
+                    {
+                        self.table_state.select(Some(new_idx));
+                    } else {
+                        // Channel no longer exists, select the last one if available
+                        if !self.stats.is_empty() {
+                            self.table_state.select(Some(self.stats.len() - 1));
+                        }
+                    }
+                } else if let Some(selected) = self.table_state.selected() {
                     if selected >= self.stats.len() && !self.stats.is_empty() {
                         self.table_state.select(Some(self.stats.len() - 1));
                     }
