@@ -20,7 +20,7 @@ Supports [std::sync](https://doc.rust-lang.org/stable/std/sync/mpsc/index.html),
 `Cargo.toml`
 
 ```toml
-channels-console = { version = "0.2", optional = true, features=['tokio', 'futures', 'crossbeam'] }
+channels-console = { version = "0.3", optional = true, features=['tokio', 'futures', 'crossbeam'] }
 
 [features]
 channels-console = ["dep:channels-console"]
